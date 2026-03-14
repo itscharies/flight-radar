@@ -217,6 +217,7 @@ void setup() {
 
 void loop() {
     epd_poweron();
+    epd_clear();
 
     String payload = fetch_data();
 

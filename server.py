@@ -220,7 +220,7 @@ async def display_data():
 
     return JSONResponse({
         "location":       loc["name"],
-        "updated_at":     datetime.now(timezone.utc).isoformat(),
+        "updated_at": datetime.now(timezone.utc).strftime("%-d %b %H:%M UTC"),
         "aircraft_count": len(results),
         "aircraft":       results,
     })
