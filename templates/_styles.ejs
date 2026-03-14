@@ -1,70 +1,82 @@
 <style>
   * { margin: 0; padding: 0; box-sizing: border-box; }
-  body {
+  html, body {
     width: 960px; height: 540px; overflow: hidden;
     background: #fff; font-family: 'Arial', sans-serif;
     color: #111;
   }
+  body {
+    display: flex; flex-direction: column;
+    flex-shrink: 0;
+  }
 
   /* ── Header ── */
   .header {
+    flex-shrink: 0;
     display: flex; align-items: center; justify-content: space-between;
-    padding: 18px 28px 14px;
+    padding: 22px 32px 18px;
     border-bottom: 2px solid #111;
   }
-  .callsign  { font-size: 42px; font-weight: bold; letter-spacing: 2px; }
-  .airline   { font-size: 22px; color: #555; margin-top: 4px; }
-  .ac-type   { font-size: 18px; color: #888; text-align: right; }
+  .callsign  { font-size: 50px; font-weight: bold; letter-spacing: 2px; }
+  .airline   { font-size: 26px; color: #555; margin-top: 6px; }
+  .ac-type   { font-size: 22px; color: #888; text-align: right; }
 
   /* ── Body ── */
   .body {
-    display: flex; height: 390px;
+    flex: 1; min-height: 0; overflow: hidden;
+    display: flex;
   }
 
   /* Left column */
   .left {
-    flex: 1; padding: 24px 28px;
+    flex: 1; min-width: 0; padding: 28px 32px;
     border-right: 1px solid #ddd;
-    display: flex; flex-direction: column; gap: 16px;
+    display: flex; flex-direction: column; gap: 20px;
+    overflow: hidden;
   }
   .route {
-    font-size: 32px; font-weight: bold;
+    font-size: 38px; font-weight: bold;
   }
   .airport-name {
-    font-size: 16px; color: #666; margin-top: -10px;
-  }
-  .status-badge {
-    display: inline-block;
-    font-size: 18px; font-weight: bold;
-    padding: 6px 16px;
-    border: 2px solid #111;
-    border-radius: 4px;
-    margin-top: 8px;
+    font-size: 20px; color: #666; margin-top: -8px;
   }
 
   /* Right column */
   .right {
-    width: 340px; padding: 24px 28px;
-    display: flex; flex-direction: column; gap: 18px;
+    flex-shrink: 0; width: 420px; padding: 28px 32px;
+    display: flex; flex-direction: column; gap: 22px;
+    overflow: hidden;
   }
   .stat { display: flex; flex-direction: column; }
   .stat-label {
-    font-size: 12px; text-transform: uppercase;
+    font-size: 14px; text-transform: uppercase;
     letter-spacing: 1px; color: #999;
   }
   .stat-value {
-    font-size: 28px; font-weight: bold;
+    font-size: 34px; font-weight: bold;
+  }
+  .stat-value-heading {
+    display: inline-flex; align-items: center; gap: 10px;
+  }
+  .heading-arrow {
+    display: inline-block;
+    font-size: 28px; line-height: 1;
+    transform-origin: center center;
+  }
+  .heading-label {
+    font-size: 34px; font-weight: bold;
   }
   .stat-grid {
-    display: grid; grid-template-columns: 1fr 1fr; gap: 18px;
+    display: grid; grid-template-columns: 1fr 1fr; gap: 22px;
   }
 
   /* ── Footer ── */
   .footer {
+    flex-shrink: 0;
     border-top: 1px solid #ddd;
-    padding: 10px 28px;
+    padding: 14px 32px;
     display: flex; justify-content: space-between;
-    font-size: 14px; color: #999;
+    font-size: 18px; color: #999;
   }
 
   /* Empty state */
@@ -74,6 +86,6 @@
     display: flex; flex-direction: column;
     align-items: center; justify-content: center;
   }
-  .empty-state h1 { font-size: 36px; color: #333; margin-bottom: 12px; }
-  .empty-state p  { font-size: 20px; color: #999; }
+  .empty-state h1 { font-size: 44px; color: #333; margin-bottom: 16px; }
+  .empty-state p  { font-size: 24px; color: #999; }
 </style>

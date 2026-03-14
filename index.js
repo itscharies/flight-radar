@@ -33,6 +33,8 @@ const CONFIG = {
     lon:  parseFloat(process.env.LOCATION_LON),
   },
   radiusKm:     parseFloat(process.env.RADIUS_KM     || 50),
+  altMinM:      parseFloat(process.env.ALTITUDE_MIN_M || 50),
+  altMaxM:      parseFloat(process.env.ALTITUDE_MAX_M || 400),
   opensky: {
     clientId:     process.env.OPENSKY_CLIENT_ID,
     clientSecret: process.env.OPENSKY_CLIENT_SECRET,
@@ -108,9 +110,10 @@ function verticalStatus(rate) {
   return "Level";
 }
 
-function msToKts(ms) {
-  return ms != null ? Math.round(ms * 1.94384) : null;
+function msToKmph(ms) {
+  return ms != null ? Math.round(ms * 3.6) : null;
 }
+
 
 async function fetchOpenSky() {
   const { lat, lon } = CONFIG.location;
@@ -141,9 +144,11 @@ async function fetchOpenSky() {
     vertRate: s[11],
   }));
 
-  // Filter: airborne only (on_ground from OpenSky), require position
+  // Filter: airborne only + altitude in range + position
   const airborne = aircraft.filter(a =>
-    !a.onGround && a.lat != null && a.lon != null
+    !a.onGround &&
+    a.altM != null && a.altM >= CONFIG.altMinM && a.altM <= CONFIG.altMaxM &&
+    a.lat != null && a.lon != null
   );
 
   console.log(`${airborne.length} aircraft after filtering`);
@@ -197,10 +202,9 @@ function buildHtml(ac, enrichment, updatedAt) {
 
   const vstatus = verticalStatus(ac.vertRate);
   const vArrow  = vstatus === "Climbing" ? "↑" : vstatus === "Descending" ? "↓" : "→";
-  const altitude = ac.altM != null ? Math.round(ac.altM) + " m" : "N/A";
-  const speed    = msToKts(ac.speedMs) != null ? msToKts(ac.speedMs) + " kts" : "N/A";
-  const heading  = ac.heading != null ? Math.round(ac.heading) + "° " + headingToCompass(ac.heading) : "N/A";
-
+  const altitude       = ac.altM != null ? Math.round(ac.altM) + " m" : "N/A";
+  const speed          = msToKmph(ac.speedMs) != null ? msToKmph(ac.speedMs) + " km/h" : "N/A";
+  const headingDegrees = ac.heading != null ? Math.round(ac.heading) : null;
   return ejs.render(
     fs.readFileSync(path.join(TEMPLATES_DIR, "aircraft.ejs"), "utf8"),
     {
@@ -211,7 +215,7 @@ function buildHtml(ac, enrichment, updatedAt) {
       vArrow,
       altitude,
       speed,
-      heading,
+      headingDegrees,
       locationName: CONFIG.location.name,
     },
     { filename: path.join(TEMPLATES_DIR, "aircraft.ejs") }
@@ -268,9 +272,9 @@ async function renderBitmap(html) {
 // Bitmap endpoint — ESP32 fetches this
 app.get("/bitmap", async (req, res) => {
   try {
-    const updatedAt = new Date().toLocaleDateString("en-AU", {
-      day: "numeric", month: "short", hour: "2-digit", minute: "2-digit", timeZone: "UTC"
-    }) + " UTC";
+    const updatedAt = new Date().toLocaleString("en-AU", {
+      day: "numeric", month: "short", hour: "2-digit", minute: "2-digit", timeZone: "Australia/Sydney"
+    });
 
     const ac         = await fetchOpenSky();
     const enrichment = ac ? await enrichAircraft(ac.icao24, ac.callsign) : {};
@@ -291,7 +295,9 @@ app.get("/bitmap", async (req, res) => {
 // Preview endpoint — view in browser during development
 app.get("/preview", async (req, res) => {
   try {
-    const updatedAt = new Date().toLocaleTimeString();
+    const updatedAt = new Date().toLocaleString("en-AU", {
+      day: "numeric", month: "short", hour: "2-digit", minute: "2-digit", timeZone: "Australia/Sydney"
+    });
     const ac         = await fetchOpenSky();
     const enrichment = ac ? await enrichAircraft(ac.icao24, ac.callsign) : {};
     const html       = buildHtml(ac, enrichment, updatedAt);

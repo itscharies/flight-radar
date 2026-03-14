@@ -8,7 +8,7 @@
 
   <div class="header">
     <div>
-      <div class="callsign">✈ <%- ac.callsign || 'Unknown' %></div>
+      <div class="callsign"><% if (vstatus === 'Climbing') { %>🛫<% } else if (vstatus === 'Descending') { %>🛬<% } else { %>✈️<% } %> <%- ac.callsign || 'Unknown' %></div>
       <div class="airline"><%- enrichment.airline || ac.country || '' %></div>
     </div>
     <div class="ac-type"><%- enrichment.aircraftType || '' %></div>
@@ -19,7 +19,6 @@
       <div class="route"><%- enrichment.route || 'Route unknown' %></div>
       <div class="airport-name"><%- enrichment.originName || '' %></div>
       <div class="airport-name"><%- enrichment.destName || '' %></div>
-      <div class="status-badge"><%- vArrow %> <%- vstatus %></div>
     </div>
 
     <div class="right">
@@ -34,7 +33,14 @@
         </div>
         <div class="stat">
           <span class="stat-label">Heading</span>
-          <span class="stat-value"><%- heading %></span>
+          <span class="stat-value stat-value-heading">
+            <% if (headingDegrees != null) { %>
+              <span class="stat-value" ><%- headingDegrees %>°</span>
+              <span class="heading-arrow" style="transform: rotate(<%= headingDegrees %>deg);">▲</span>
+            <% } else { %>
+              N/A
+            <% } %>
+          </span>
         </div>
         <div class="stat">
           <span class="stat-label">Distance</span>
