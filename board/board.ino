@@ -1,59 +1,33 @@
 /**
-* Flight Radar — LilyGO T5 4.7" e-ink Display
-* ------------------------------------------------
-* Connects to WiFi, fetches flight data from middleware,
-* and renders a dashboard in landscape (960x540) orientation.
-*
-* Libraries required:
-*   - LilyGo-EPD47   (display driver)
-*   - ArduinoJson    (install via Library Manager)
-*   - WiFi           (bundled with ESP32 board package)
-*   - HTTPClient     (bundled with ESP32 board package)
-*/
+ * Flight Radar — LilyGO T5 4.7" e-ink Display
+ * ------------------------------------------------
+ * Fetches a pre-rendered 4-bit grayscale bitmap from the Node server
+ * and blits it directly to the e-ink display.
+ *
+ * Libraries required:
+ *   - LilyGo-EPD47   (display driver)
+ *   - WiFi           (bundled with ESP32 board package)
+ *   - HTTPClient     (bundled with ESP32 board package)
+ */
 
 #include <WiFi.h>
 #include <HTTPClient.h>
 #include <WiFiClientSecure.h>
-#include <ArduinoJson.h>
 #include "epd_driver.h"
-#include "firasans.h"
 
 // ─── CONFIG ────────────────────────────────────────────────────────────────────
 const char* WIFI_SSID     = "LESS DELUXE NETWORK";
 const char* WIFI_PASSWORD = "why?becauseisaidso";
-const char* SERVER_URL    = "https://flight-radar-qm6i.onrender.com/display-data";
+const char* SERVER_URL    = "http://192.168.1.104:8080/bitmap";
 
 const int UPDATE_INTERVAL_MS = 30000;
 
 // ─── DISPLAY ───────────────────────────────────────────────────────────────────
+#define EPD_W 960
+#define EPD_H 540
+#define BITMAP_SIZE (EPD_W * EPD_H / 2) // 4-bit packed = 259200 bytes
+
 uint8_t* framebuffer = nullptr;
-
-#define SCR_W  960
-#define SCR_H  540
-#define PAD    24
-#define COL2   500
-
-// ─── HELPERS ───────────────────────────────────────────────────────────────────
-
-void fb_clear() {
-    memset(framebuffer, 0xFF, EPD_WIDTH / 2 * EPD_HEIGHT);
-}
-
-void draw_rule(int y, int x1, int x2, uint8_t colour = 0) {
-    epd_draw_hline(x1, y, x2 - x1, colour, framebuffer);
-}
-
-int draw_text(const char* text, int x, int y, const GFXfont* font, uint8_t colour = 0) {
-    int cx = x, cy = y;
-    writeln(font, text, &cx, &cy, framebuffer);
-    return cy;
-}
-
-void draw_kv(const char* label, const char* value, int x, int y) {
-    char buf[64];
-    snprintf(buf, sizeof(buf), "%-6s  %s", label, value);
-    draw_text(buf, x, y, (GFXfont*)&FiraSans);
-}
 
 // ─── WIFI ──────────────────────────────────────────────────────────────────────
 
@@ -78,109 +52,43 @@ bool wifi_connect() {
     return false;
 }
 
-// ─── FETCH ─────────────────────────────────────────────────────────────────────
+// ─── FETCH BITMAP ──────────────────────────────────────────────────────────────
 
-String fetch_data() {
-    WiFiClientSecure client;
-    client.setInsecure();
+bool fetch_bitmap() {
     HTTPClient http;
-    http.begin(client, SERVER_URL);
-    http.setTimeout(15000); // slightly longer for Render cold starts
+    http.begin(SERVER_URL);
+    http.setTimeout(30000); // rendering takes a moment
+
     int code = http.GET();
-    if (code == HTTP_CODE_OK) {
-        String payload = http.getString();
+    Serial.printf("HTTP status: %d\n", code);
+
+    if (code != HTTP_CODE_OK) {
+        Serial.printf("HTTP error: %d\n", code);
         http.end();
-        return payload;
+        return false;
     }
-    Serial.printf("HTTP error: %d\n", code);
+
+    int len = http.getSize();
+    Serial.printf("Bitmap size: %d bytes (expected %d)\n", len, BITMAP_SIZE);
+
+    if (len != BITMAP_SIZE) {
+        Serial.println("Unexpected bitmap size, aborting");
+        http.end();
+        return false;
+    }
+
+    // Stream directly into framebuffer
+    WiFiClient* stream = http.getStreamPtr();
+    int received = 0;
+    while (received < BITMAP_SIZE) {
+        int chunk = stream->readBytes(framebuffer + received, BITMAP_SIZE - received);
+        if (chunk == 0) break;
+        received += chunk;
+    }
+
     http.end();
-    return "";
-}
-
-// ─── RENDER ────────────────────────────────────────────────────────────────────
-
-void render_error(const char* msg) {
-    fb_clear();
-    draw_text("FLIGHT RADAR", PAD, 55, (GFXfont*)&FiraSans);
-    draw_rule(68, PAD, SCR_W - PAD);
-    draw_text(msg, PAD, 140, (GFXfont*)&FiraSans);
-    epd_draw_grayscale_image(epd_full_screen(), framebuffer);
-}
-
-void render_no_aircraft(const char* updated_at) {
-    fb_clear();
-    draw_text("FLIGHT RADAR", PAD, 55, (GFXfont*)&FiraSans);
-    draw_rule(68, PAD, SCR_W - PAD);
-    draw_text("No aircraft overhead right now.", PAD, 160, (GFXfont*)&FiraSans);
-
-    char footer[64];
-    snprintf(footer, sizeof(footer), "Updated: %s", updated_at);
-    draw_text(footer, PAD, SCR_H - PAD, (GFXfont*)&FiraSans);
-
-    epd_draw_grayscale_image(epd_full_screen(), framebuffer);
-}
-
-void render_dashboard(JsonObject ac, int total, const char* updated_at) {
-    fb_clear();
-
-    // ── Header ────────────────────────────────────────────────────────────────
-    const char* callsign = ac["callsign"] | "-------";
-    const char* airline  = ac["airline"]  | "";
-    char header[64];
-    snprintf(header, sizeof(header), "%s  %s", callsign, airline);
-    draw_text(header, PAD, 55, (GFXfont*)&FiraSans);
-    draw_rule(68, PAD, SCR_W - PAD);
-
-    // ── Route block ───────────────────────────────────────────────────────────
-    const char* route    = ac["route"]            | "Route unknown";
-    const char* org_name = ac["origin_name"]      | "";
-    const char* dst_name = ac["destination_name"] | "";
-    const char* ac_type  = ac["aircraft_type"]    | "Unknown type";
-
-    draw_text(route,    PAD, 120, (GFXfont*)&FiraSans);
-    draw_text(org_name, PAD, 155, (GFXfont*)&FiraSans);
-    draw_text(dst_name, PAD, 190, (GFXfont*)&FiraSans);
-    draw_text(ac_type,  PAD, 230, (GFXfont*)&FiraSans);
-
-    // ── Column divider ────────────────────────────────────────────────────────
-    epd_draw_vline(COL2 - 20, 80, SCR_H - 120, 0, framebuffer);
-
-    // ── Stats block ───────────────────────────────────────────────────────────
-    int   alt    = ac["altitude_m"]  | 0;
-    int   spd    = ac["speed_kts"]    | 0;
-    int   hdg    = ac["heading_deg"]  | 0;
-    float dist   = ac["distance_km"]  | 0.0;
-    const char* compass = ac["heading_compass"] | "?";
-    const char* vstatus = ac["vertical_status"] | "Level";
-
-    char buf[32];
-
-    snprintf(buf, sizeof(buf), "%d m", alt);
-    draw_kv("ALT",    buf,     COL2, 120);
-
-    snprintf(buf, sizeof(buf), "%d kts", spd);
-    draw_kv("SPD",    buf,     COL2, 160);
-
-    snprintf(buf, sizeof(buf), "%d deg %s", hdg, compass);
-    draw_kv("HDG",    buf,     COL2, 200);
-
-    snprintf(buf, sizeof(buf), "%.1f km", dist);
-    draw_kv("DIST",   buf,     COL2, 240);
-
-    draw_kv("STATUS", vstatus, COL2, 280);
-
-    // ── Footer ────────────────────────────────────────────────────────────────
-    draw_rule(SCR_H - 80, PAD, SCR_W - PAD);
-
-    char count_buf[48];
-    snprintf(count_buf, sizeof(count_buf), "%d aircraft in range", total);
-    draw_text(count_buf, PAD, SCR_H - 44, (GFXfont*)&FiraSans);
-
-    char footer[64];
-    snprintf(footer, sizeof(footer), "Updated: %s", updated_at);
-    draw_text(footer, COL2, SCR_H - 44, (GFXfont*)&FiraSans);
-
-    epd_draw_grayscale_image(epd_full_screen(), framebuffer);
+    Serial.printf("Received %d bytes\n", received);
+    return received == BITMAP_SIZE;
 }
 
 // ─── SETUP ─────────────────────────────────────────────────────────────────────
@@ -189,7 +97,7 @@ void setup() {
     Serial.begin(115200);
 
     epd_init();
-    framebuffer = (uint8_t*)ps_calloc(sizeof(uint8_t), EPD_WIDTH / 2 * EPD_HEIGHT);
+    framebuffer = (uint8_t*)ps_calloc(sizeof(uint8_t), BITMAP_SIZE);
     if (!framebuffer) {
         Serial.println("ERROR: framebuffer alloc failed — needs PSRAM");
         while (true) delay(1000);
@@ -197,51 +105,28 @@ void setup() {
 
     epd_poweron();
     epd_clear();
-
-    fb_clear();
-    draw_text("FLIGHT RADAR", PAD, 55, (GFXfont*)&FiraSans);
-    draw_rule(68, PAD, SCR_W - PAD);
-    draw_text("Connecting to WiFi...", PAD, 140, (GFXfont*)&FiraSans);
-    epd_draw_grayscale_image(epd_full_screen(), framebuffer);
+    epd_poweroff();
 
     if (!wifi_connect()) {
-        render_error("WiFi connection failed.\nCheck SSID and password.");
-        epd_poweroff();
-        return;
+        Serial.println("WiFi failed, halting");
+        while (true) delay(1000);
     }
-
-    Serial.println("WiFi connected: " + WiFi.localIP().toString());
 }
 
 // ─── LOOP ──────────────────────────────────────────────────────────────────────
 
 void loop() {
-    epd_poweron();
-    epd_clear();
+    Serial.println("Fetching bitmap...");
 
-    String payload = fetch_data();
-
-    if (payload.isEmpty()) {
-        render_error("Could not reach server.\nCheck URL and that server is running.");
+    if (fetch_bitmap()) {
+        epd_poweron();
+        epd_clear();
+        epd_draw_grayscale_image(epd_full_screen(), framebuffer);
+        epd_poweroff();
+        Serial.println("Display updated");
     } else {
-        StaticJsonDocument<8192> doc;
-        DeserializationError err = deserializeJson(doc, payload);
-
-        if (err) {
-            render_error("JSON parse error.");
-        } else {
-            int total       = doc["aircraft_count"] | 0;
-            const char* upd = doc["updated_at"]     | "unknown";
-
-            if (total == 0) {
-                render_no_aircraft(upd);
-            } else {
-                JsonObject ac = doc["aircraft"][0];
-                render_dashboard(ac, total, upd);
-            }
-        }
+        Serial.println("Fetch failed, skipping render");
     }
 
-    epd_poweroff();
     delay(UPDATE_INTERVAL_MS);
 }
