@@ -32,7 +32,8 @@ WATCH_LOCATION = {
 }
 
 RADIUS_KM      = float(os.getenv("RADIUS_KM", 50))
-ALTITUDE_MIN_M = float(os.getenv("ALTITUDE_MIN_M", 100))
+ALTITUDE_MIN_M = float(os.getenv("ALTITUDE_MIN_M", 50))
+ALTITUDE_MAX_M = float(os.getenv("ALTITUDE_MAX_M", 400))
 MAX_AIRCRAFT   = int(os.getenv("MAX_AIRCRAFT", 5))
 
 OPENSKY_CLIENT_ID     = os.getenv("OPENSKY_CLIENT_ID")
@@ -118,12 +119,17 @@ async def fetch_opensky(bbox: dict) -> list:
     async with httpx.AsyncClient(timeout=30, headers=headers) as client:
         try:
             resp = await client.get(url, params=params)
+            print(f"OpenSky status: {resp.status_code}")
+            print(f"OpenSky headers: {dict(resp.headers)}")
+            if resp.status_code != 200:
+                print(f"OpenSky body: {resp.text}")
             resp.raise_for_status()
         except httpx.ConnectTimeout:
             raise RuntimeError("Timed out connecting to OpenSky")
         except httpx.HTTPStatusError as e:
             raise RuntimeError(f"OpenSky returned HTTP {e.response.status_code}")
         data = resp.json()
+        print(f"OpenSky returned {len(data.get('states') or [])} aircraft")
 
     # OpenSky state vector indices:
     # 0=icao24, 1=callsign, 2=origin_country, 3=time_position,
@@ -209,14 +215,19 @@ async def display_data():
         return JSONResponse({"error": str(e), "aircraft_count": 0, "aircraft": []}, status_code=503)
 
     # Filter: airborne only + above altitude threshold
-    airborne = [
-        a for a in raw
-        if not a["on_ground"]
-        and a["alt_m"] is not None
-        and a["alt_m"] >= ALTITUDE_MIN_M
-        and a["lat"] is not None
-        and a["lon"] is not None
-    ]
+    airborne = []
+    for a in raw:
+        if a["on_ground"]:
+            print(f"  SKIP {a['callsign']} — on ground")
+        elif a["alt_m"] is None:
+            print(f"  SKIP {a['callsign']} — no altitude data")
+        elif a["alt_m"] < ALTITUDE_MIN_M or a["alt_m"] > ALTITUDE_MAX_M:
+            print(f"  SKIP {a['callsign']} — altitude {a['alt_m']}m outside range {ALTITUDE_MIN_M}-{ALTITUDE_MAX_M}m")
+        elif a["lat"] is None or a["lon"] is None:
+            print(f"  SKIP {a['callsign']} — no position data")
+        else:
+            print(f"  PASS {a['callsign']} — alt {a['alt_m']}m")
+            airborne.append(a)
 
     # Sort nearest first
     for a in airborne:
@@ -225,9 +236,9 @@ async def display_data():
         )
     airborne.sort(key=lambda x: x["distance_km"])
 
-    # Enrich top N aircraft
+    # Enrich only the single closest aircraft
     results = []
-    for a in airborne[:MAX_AIRCRAFT]:
+    for a in airborne[:1]:
         enrichment = await enrich_aircraft(a["icao24"], a["callsign"])
         results.append({
             "icao24":           a["icao24"],
@@ -238,7 +249,7 @@ async def display_data():
             "origin_name":      enrichment.get("origin_name"),
             "destination_name": enrichment.get("destination_name"),
             "distance_km":      a["distance_km"],
-            "altitude_ft":      m_to_ft(a["alt_m"]),
+            "altitude_m":      a["alt_m"],
             "speed_kts":        ms_to_kts(a["speed_ms"]),
             "heading_deg":      round(a["heading"]) if a["heading"] else None,
             "heading_compass":  heading_to_compass(a["heading"]),

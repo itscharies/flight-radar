@@ -1,15 +1,15 @@
 /**
- * Flight Radar — LilyGO T5 4.7" e-ink Display
- * ------------------------------------------------
- * Connects to WiFi, fetches flight data from middleware,
- * and renders a dashboard in landscape (960x540) orientation.
- *
- * Libraries required:
- *   - LilyGo-EPD47   (display driver)
- *   - ArduinoJson    (install via Library Manager)
- *   - WiFi           (bundled with ESP32 board package)
- *   - HTTPClient     (bundled with ESP32 board package)
- */
+* Flight Radar — LilyGO T5 4.7" e-ink Display
+* ------------------------------------------------
+* Connects to WiFi, fetches flight data from middleware,
+* and renders a dashboard in landscape (960x540) orientation.
+*
+* Libraries required:
+*   - LilyGo-EPD47   (display driver)
+*   - ArduinoJson    (install via Library Manager)
+*   - WiFi           (bundled with ESP32 board package)
+*   - HTTPClient     (bundled with ESP32 board package)
+*/
 
 #include <WiFi.h>
 #include <HTTPClient.h>
@@ -21,7 +21,7 @@
 // ─── CONFIG ────────────────────────────────────────────────────────────────────
 const char* WIFI_SSID     = "LESS DELUXE NETWORK";
 const char* WIFI_PASSWORD = "why?becauseisaidso";
-const char* SERVER_URL    = "https://web-production-c0928.up.railway.app/display-data";
+const char* SERVER_URL    = "https://flight-radar-qm6i.onrender.com/display-data";
 
 const int UPDATE_INTERVAL_MS = 30000;
 
@@ -85,7 +85,7 @@ String fetch_data() {
     client.setInsecure();
     HTTPClient http;
     http.begin(client, SERVER_URL);
-    http.setTimeout(10000);
+    http.setTimeout(15000); // slightly longer for Render cold starts
     int code = http.GET();
     if (code == HTTP_CODE_OK) {
         String payload = http.getString();
@@ -146,7 +146,7 @@ void render_dashboard(JsonObject ac, int total, const char* updated_at) {
     epd_draw_vline(COL2 - 20, 80, SCR_H - 120, 0, framebuffer);
 
     // ── Stats block ───────────────────────────────────────────────────────────
-    int   alt    = ac["altitude_ft"]  | 0;
+    int   alt    = ac["altitude_m"]  | 0;
     int   spd    = ac["speed_kts"]    | 0;
     int   hdg    = ac["heading_deg"]  | 0;
     float dist   = ac["distance_km"]  | 0.0;
@@ -155,7 +155,7 @@ void render_dashboard(JsonObject ac, int total, const char* updated_at) {
 
     char buf[32];
 
-    snprintf(buf, sizeof(buf), "%d ft", alt);
+    snprintf(buf, sizeof(buf), "%d m", alt);
     draw_kv("ALT",    buf,     COL2, 120);
 
     snprintf(buf, sizeof(buf), "%d kts", spd);
