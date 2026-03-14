@@ -13,16 +13,16 @@
  */
 
 require("dotenv").config();
-const express    = require("express");
-const puppeteer  = require("puppeteer");
-const sharp      = require("sharp");
-const axios      = require("axios");
-const path       = require("path");
-const fs         = require("fs");
-const crypto     = require("crypto");
-const ejs        = require("ejs");
+const express = require("express");
+const puppeteer = require("puppeteer");
+const sharp = require("sharp");
+const axios = require("axios");
+const path = require("path");
+const fs = require("fs");
+const crypto = require("crypto");
+const ejs = require("ejs");
 
-const app  = express();
+const app = express();
 const PORT = process.env.PORT || 8080;
 
 // ─── CONFIG ───────────────────────────────────────────────────────────────────
@@ -30,14 +30,15 @@ const PORT = process.env.PORT || 8080;
 const CONFIG = {
   location: {
     name: process.env.LOCATION_NAME || "Home",
-    lat:  parseFloat(process.env.LOCATION_LAT),
-    lon:  parseFloat(process.env.LOCATION_LON),
+    lat: parseFloat(process.env.LOCATION_LAT),
+    lon: parseFloat(process.env.LOCATION_LON),
   },
-  radiusKm:     parseFloat(process.env.RADIUS_KM     || 50),
-  altMinM:      parseFloat(process.env.ALTITUDE_MIN_M || 50),
-  altMaxM:      parseFloat(process.env.ALTITUDE_MAX_M || 400),
+  radiusKm: parseFloat(process.env.RADIUS_KM),
+  altMinM: parseFloat(process.env.ALTITUDE_MIN_M),
+  altMaxM: parseFloat(process.env.ALTITUDE_MAX_M ),
+  baroAltMaxM: parseFloat(process.env.BARO_ALT_MAX_M),
   opensky: {
-    clientId:     process.env.OPENSKY_CLIENT_ID,
+    clientId: process.env.OPENSKY_CLIENT_ID,
     clientSecret: process.env.OPENSKY_CLIENT_SECRET,
   },
 };
@@ -50,7 +51,7 @@ const RENDER_SCALE = 2;
 
 // ─── OPENSKY TOKEN CACHE ──────────────────────────────────────────────────────
 
-let cachedToken    = null;
+let cachedToken = null;
 let tokenExpiresAt = null;
 
 async function getOpenSkyToken() {
@@ -59,8 +60,8 @@ async function getOpenSkyToken() {
 
   try {
     const params = new URLSearchParams({
-      grant_type:    "client_credentials",
-      client_id:     CONFIG.opensky.clientId,
+      grant_type: "client_credentials",
+      client_id: CONFIG.opensky.clientId,
       client_secret: CONFIG.opensky.clientSecret,
     });
     const resp = await axios.post(
@@ -68,7 +69,7 @@ async function getOpenSkyToken() {
       params.toString(),
       { headers: { "Content-Type": "application/x-www-form-urlencoded" }, timeout: 10000 }
     );
-    cachedToken    = resp.data.access_token;
+    cachedToken = resp.data.access_token;
     tokenExpiresAt = Date.now() + (resp.data.expires_in - 60) * 1000;
     console.log("OpenSky token acquired");
     return cachedToken;
@@ -80,9 +81,12 @@ async function getOpenSkyToken() {
 
 // ─── OPENSKY FETCH ────────────────────────────────────────────────────────────
 
+const MIN_RADIUS_KM = 1; // avoid degenerate bbox and tile math
+
 function getBoundingBox(lat, lon, radiusKm) {
-  const dLat = radiusKm / 111.0;
-  const dLon = radiusKm / (111.0 * Math.cos((lat * Math.PI) / 180));
+  const r = Math.max(radiusKm, MIN_RADIUS_KM);
+  const dLat = r / 111.0;
+  const dLon = r / (111.0 * Math.cos((lat * Math.PI) / 180));
   return { lamin: lat - dLat, lamax: lat + dLat, lomin: lon - dLon, lomax: lon + dLon };
 }
 
@@ -146,16 +150,10 @@ function haversineKm(lat1, lon1, lat2, lon2) {
   return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
 }
 
-function headingToCompass(deg) {
-  if (deg == null) return "N/A";
-  const dirs = ["N","NNE","NE","ENE","E","ESE","SE","SSE","S","SSW","SW","WSW","W","WNW","NW","NNW"];
-  return dirs[Math.round(deg / (360 / dirs.length)) % dirs.length];
-}
-
 function verticalStatus(rate) {
   if (rate == null) return "Level";
-  if (rate >  1.5)  return "Climbing";
-  if (rate < -1.5)  return "Descending";
+  if (rate > 1.5) return "Climbing";
+  if (rate < -1.5) return "Descending";
   return "Level";
 }
 
@@ -166,13 +164,15 @@ function msToKmph(ms) {
 
 async function fetchOpenSky() {
   const { lat, lon } = CONFIG.location;
-  const bbox  = getBoundingBox(lat, lon, CONFIG.radiusKm);
+  const bbox = getBoundingBox(lat, lon, CONFIG.radiusKm);
   const token = await getOpenSkyToken();
   const headers = token ? { Authorization: `Bearer ${token}` } : {};
 
   const resp = await axios.get("https://opensky-network.org/api/states/all", {
-    params:  { lamin: bbox.lamin.toFixed(4), lamax: bbox.lamax.toFixed(4),
-               lomin: bbox.lomin.toFixed(4), lomax: bbox.lomax.toFixed(4) },
+    params: {
+      lamin: bbox.lamin.toFixed(4), lamax: bbox.lamax.toFixed(4),
+      lomin: bbox.lomin.toFixed(4), lomax: bbox.lomax.toFixed(4)
+    },
     headers,
     timeout: 30000,
   });
@@ -181,24 +181,26 @@ async function fetchOpenSky() {
   console.log(`OpenSky returned ${states.length} aircraft`);
 
   const aircraft = states.map(s => ({
-    icao24:   s[0],
+    icao24: s[0],
     callsign: (s[1] || "").trim() || null,
-    country:  s[2],
-    lon:      s[5],
-    lat:      s[6],
-    altM:     s[13], // WGS84 geometric altitude
+    country: s[2],
+    lon: s[5],
+    lat: s[6],
+    altM: s[13],   // WGS84 geometric (EGM96) altitude
+    baroAltM: s[7],   // barometric altitude
     onGround: s[8],
-    speedMs:  s[9],
-    heading:  s[10],
+    speedMs: s[9],
+    heading: s[10],
     vertRate: s[11],
   }));
 
-  // Filter: airborne only + altitude in range + position
-  const airborne = aircraft.filter(a =>
-    !a.onGround &&
-    a.altM != null && a.altM >= CONFIG.altMinM && a.altM <= CONFIG.altMaxM &&
-    a.lat != null && a.lon != null
-  );
+  // Filter: airborne + position; altitude: prefer geometric in [min,max], else barometric with no min, max baroAltMaxM
+  const airborne = aircraft.filter(a => {
+    if (a.onGround || a.lat == null || a.lon == null) return false;
+    if (a.altM != null && a.altM >= CONFIG.altMinM && a.altM <= CONFIG.altMaxM) return true;
+    if (a.altM == null && a.baroAltM != null && a.baroAltM <= CONFIG.baroAltMaxM) return true;
+    return false;
+  });
 
   console.log(`${airborne.length} aircraft after filtering`);
 
@@ -208,7 +210,9 @@ async function fetchOpenSky() {
   });
   airborne.sort((a, b) => a.distanceKm - b.distanceKm);
 
-  return airborne[0] || null;
+  const ac = airborne[0] || null;
+  if (ac && ac.altM == null && ac.baroAltM != null) ac.altM = ac.baroAltM;
+  return ac;
 }
 
 // ─── ENRICHMENT ───────────────────────────────────────────────────────────────
@@ -221,17 +225,17 @@ async function enrichAircraft(icao24, callsign) {
     const routeResp = await axios.get(`https://api.adsbdb.com/v0/callsign/${callsign}`, { timeout: 5000 });
     const fr = routeResp.data?.response?.flightroute;
     if (fr) {
-      result.route       = `${fr.origin?.iata_code || "?"} → ${fr.destination?.iata_code || "?"}`;
-      result.originName  = fr.origin?.name || null;
-      result.destName    = fr.destination?.name || null;
-      result.airline     = fr.airline?.name || null;
+      result.route = `${fr.origin?.iata_code || "?"} ➡ ${fr.destination?.iata_code || "?"}`;
+      result.originName = fr.origin?.name || null;
+      result.destName = fr.destination?.name || null;
+      result.airline = fr.airline?.name || null;
     }
-  } catch (_) {}
+  } catch (_) { }
 
   try {
     const acResp = await axios.get(`https://api.adsbdb.com/v0/aircraft/${icao24}`, { timeout: 5000 });
     result.aircraftType = acResp.data?.response?.aircraft?.type || null;
-  } catch (_) {}
+  } catch (_) { }
 
   return result;
 }
@@ -249,24 +253,27 @@ function buildHtml(ac, enrichment, updatedAt) {
     );
   }
 
-  const vstatus   = verticalStatus(ac.vertRate);
-  const altitude  = ac.altM != null ? Math.round(ac.altM) + " m" : "N/A";
-  const speed     = msToKmph(ac.speedMs) != null ? msToKmph(ac.speedMs) + " km/h" : "N/A";
+  const vstatus = verticalStatus(ac.vertRate);
+  const altitude = ac.altM != null ? Math.round(ac.altM) + " m" : "N/A";
+  const speed = msToKmph(ac.speedMs) != null ? msToKmph(ac.speedMs) + " km/h" : "N/A";
   const { lat, lon } = CONFIG.location;
-  const bbox      = getBoundingBox(lat, lon, CONFIG.radiusKm);
+  const bbox = getBoundingBox(lat, lon, CONFIG.radiusKm);
   const mapDisplaySize = 356;
-  const mapW      = mapDisplaySize * 2;
-  const mapH      = mapDisplaySize * 2;
-  const lonSpan   = bbox.lomax - bbox.lomin;
-  const latSpan   = bbox.lamax - bbox.lamin;
-  const planeX    = lonSpan ? ((ac.lon - bbox.lomin) / lonSpan) * mapW : mapW / 2;
-  const planeY    = latSpan ? ((bbox.lamax - ac.lat) / latSpan) * mapH : mapH / 2;
-  const centerX   = mapW / 2;
-  const centerY   = mapH / 2;
+  const mapW = mapDisplaySize * 2;
+  const mapH = mapDisplaySize * 2;
+  const lonSpan = bbox.lomax - bbox.lomin;
+  const latSpan = bbox.lamax - bbox.lamin;
+  const planeX = lonSpan ? ((ac.lon - bbox.lomin) / lonSpan) * mapW : mapW / 2;
+  const planeY = latSpan ? ((bbox.lamax - ac.lat) / latSpan) * mapH : mapH / 2;
+  const centerX = mapW / 2;
+  const centerY = mapH / 2;
   const radiusPxX = lonSpan ? (CONFIG.radiusKm / (111 * Math.cos((lat * Math.PI) / 180)) / lonSpan) * mapW : mapW / 2;
   const radiusPxY = latSpan ? (CONFIG.radiusKm / 111 / latSpan) * mapH : mapH / 2;
   const planeHeading = ac.heading != null ? Math.round(ac.heading) : 0;
   const mapTiles = getTilesForMap(bbox, mapW, mapH);
+  // Scale map so it fills body height (540 - header ~122 - footer ~46 ≈ 372)
+  const bodyHeight = EPD_H - 122 - 46;
+  const mapScale = (bodyHeight / mapH).toFixed(4);
 
   const locals = {
     ac,
@@ -276,7 +283,7 @@ function buildHtml(ac, enrichment, updatedAt) {
     altitude,
     speed,
     locationName: CONFIG.location.name,
-    mapW, mapH, centerX, centerY, radiusPxX, radiusPxY, planeX, planeY, planeHeading,
+    mapW, mapH, mapScale, centerX, centerY, radiusPxX, radiusPxY, planeX, planeY, planeHeading,
     mapTiles,
   };
   return ejs.render(
@@ -301,11 +308,11 @@ async function getBrowser() {
 }
 
 async function renderBitmap(html) {
-  const b    = await getBrowser();
+  const b = await getBrowser();
   const page = await b.newPage();
   await page.setViewport({
-    width:             EPD_W,
-    height:            EPD_H,
+    width: EPD_W,
+    height: EPD_H,
     deviceScaleFactor: RENDER_SCALE,
   });
   await page.setUserAgent("FlightRadar/1.0 (https://github.com/flight-radar)");
@@ -341,10 +348,10 @@ app.get("/bitmap", async (req, res) => {
       day: "numeric", month: "short", hour: "2-digit", minute: "2-digit", timeZone: "Australia/Sydney"
     });
 
-    const ac         = await fetchOpenSky();
+    const ac = await fetchOpenSky();
     const enrichment = ac ? await enrichAircraft(ac.icao24, ac.callsign) : {};
-    const html       = buildHtml(ac, enrichment, updatedAt);
-    const bitmap     = await renderBitmap(html);
+    const html = buildHtml(ac, enrichment, updatedAt);
+    const bitmap = await renderBitmap(html);
 
     const hash = crypto.createHash("md5").update(bitmap).digest("hex");
     const etag = `"${hash}"`;
@@ -374,9 +381,9 @@ app.get("/preview", async (req, res) => {
     const updatedAt = new Date().toLocaleString("en-AU", {
       day: "numeric", month: "short", hour: "2-digit", minute: "2-digit", timeZone: "Australia/Sydney"
     });
-    const ac         = await fetchOpenSky();
+    const ac = await fetchOpenSky();
     const enrichment = ac ? await enrichAircraft(ac.icao24, ac.callsign) : {};
-    const html       = buildHtml(ac, enrichment, updatedAt);
+    const html = buildHtml(ac, enrichment, updatedAt);
     res.set("Content-Type", "text/html");
     res.send(html);
   } catch (err) {
@@ -395,15 +402,15 @@ app.get("/preview/aircraft", (req, res) => {
       icao24: "abc123",
       callsign: "QFA456",
       country: "AU",
-      lat: lat + 0.02,
-      lon: lon + 0.01,
+      lat: lat + 0.002,
+      lon: lon + 0.001,
       altM: 3200,
       speedMs: 220,
-      heading: 85,
+      heading: 135,
       vertRate: 2.1,
     };
     const enrichment = {
-      route: "SYD → MEL",
+      route: "SYD ➡ MEL",
       originName: "Sydney Kingsford Smith",
       destName: "Melbourne",
       airline: "Qantas",

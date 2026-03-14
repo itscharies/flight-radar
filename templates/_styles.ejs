@@ -17,9 +17,9 @@
     padding: 22px 32px 18px;
     border-bottom: 2px solid #111;
   }
-  .callsign  { font-size: 50px; font-weight: bold; letter-spacing: 2px; }
-  .airline   { font-size: 26px; color: #555; margin-top: 6px; }
-  .ac-type   { font-size: 22px; color: #888; text-align: right; }
+  .callsign  { font-size: 48px; font-weight: bold; }
+  .airline   { font-size: 18px; color: #555; margin-top: -6px; }
+  .ac-type   { font-size: 32px; color: #888; text-align: right; }
 
   /* ── Body ── */
   .body {
@@ -34,17 +34,23 @@
     display: flex; flex-direction: column; gap: 20px;
     overflow: hidden;
   }
+  .block {
+    display: flex; flex-direction: column; gap: 8px;
+  }
   .route {
-    font-size: 38px; font-weight: bold;
+    font-size: 64px; font-weight: bold;
+  }
+  .airports {
+    display: flex; flex-direction: column; gap: 8px;
   }
   .airport-name {
-    font-size: 20px; color: #666; margin-top: -8px;
+    font-size: 24px; color: #666;
   }
   .divider {
-    height: 2px; border-bottom: 2px solid #ddd; margin: 20px 0;
+    border-bottom: 2px solid #ddd;
   }
   .stats-under-route {
-    display: flex; gap: 24px; margin-top: 12px;
+    display: flex; gap: 24px;
   }
   .stat-block {
     display: flex; flex-direction: column; gap: 4px;
@@ -59,33 +65,49 @@
 
   /* Right column — map (full size, no padding) */
   .right.map-column {
-    flex-shrink: 0; width: 356px; padding: 0;
-    display: flex; align-items: center; justify-content: center;
+    flex: 1;
+    min-width: 0;
+    min-height: 0;
+    padding: 0;
+    display: flex;
     overflow: hidden;
   }
   .map-wrap {
     position: relative;
+    flex: 1;
+    width: 100%;
+    height: 100%;
     overflow: hidden;
-    flex-shrink: 0;
+    container-type: size;
   }
   .map-inner {
     position: absolute;
-    left: 0;
+    left: 50%;
     top: 0;
-    transform: scale(0.5);
-    transform-origin: 0 0;
+    transform-origin: 50% 0;
+    transform: translateX(-50%) scale(var(--map-scale, 0.5));
   }
   .map-tile {
     position: absolute;
     display: block;
     pointer-events: none;
-    filter: brightness(0.69) contrast(3);
+    filter: invert(1) brightness(8) contrast(0.5) brightness(2.2) contrast(1.2);
   }
   .map-overlay {
     position: absolute;
     left: 0;
     top: 0;
     pointer-events: none;
+  }
+  .plane-group {
+    filter: drop-shadow(34px 84px 2px rgba(0, 0, 0, 0.6));
+  }
+  .plane-icon {
+    font-size: 64px;
+  }
+  .house-icon {
+    font-size: 64px;
+    filter: drop-shadow(0 0 4px rgba(0, 0, 0, 0.8));
   }
 
   /* ── Footer ── */
