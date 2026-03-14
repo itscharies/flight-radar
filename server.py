@@ -78,9 +78,14 @@ async def fetch_opensky(bbox: dict) -> list:
     url = "https://opensky-network.org/api/states/all"
     params = {k: round(v, 4) for k, v in bbox.items()}
 
-    async with httpx.AsyncClient(timeout=10) as client:
-        resp = await client.get(url, params=params)
-        resp.raise_for_status()
+    async with httpx.AsyncClient(timeout=30) as client:
+        try:
+            resp = await client.get(url, params=params)
+            resp.raise_for_status()
+        except httpx.ConnectTimeout:
+            raise RuntimeError("Timed out connecting to OpenSky — host may be blocking outbound requests")
+        except httpx.HTTPStatusError as e:
+            raise RuntimeError(f"OpenSky returned HTTP {e.response.status_code}")
         data = resp.json()
 
     # OpenSky state vector indices:
@@ -167,14 +172,13 @@ def vertical_status(vert_rate) -> str:
 
 @app.get("/display-data")
 async def display_data():
-    """
-    Main endpoint for the ESP32.
-    Returns a filtered, enriched list of overhead aircraft ready to render.
-    """
     loc = WATCH_LOCATION
     bbox = get_bounding_box(loc["lat"], loc["lon"], RADIUS_KM)
 
-    raw = await fetch_opensky(bbox)
+    try:
+        raw = await fetch_opensky(bbox)
+    except RuntimeError as e:
+        return JSONResponse({"error": str(e), "aircraft_count": 0, "aircraft": []}, status_code=503)
 
     # Filter: airborne only + above altitude threshold
     airborne = [
