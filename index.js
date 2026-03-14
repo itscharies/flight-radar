@@ -33,8 +33,6 @@ const CONFIG = {
     lon:  parseFloat(process.env.LOCATION_LON),
   },
   radiusKm:     parseFloat(process.env.RADIUS_KM     || 50),
-  altMinM:      parseFloat(process.env.ALTITUDE_MIN_M || 50),
-  altMaxM:      parseFloat(process.env.ALTITUDE_MAX_M || 400),
   opensky: {
     clientId:     process.env.OPENSKY_CLIENT_ID,
     clientSecret: process.env.OPENSKY_CLIENT_SECRET,
@@ -143,11 +141,9 @@ async function fetchOpenSky() {
     vertRate: s[11],
   }));
 
-  // Filter
+  // Filter: airborne only (on_ground from OpenSky), require position
   const airborne = aircraft.filter(a =>
-    !a.onGround &&
-    a.altM != null && a.altM >= CONFIG.altMinM && a.altM <= CONFIG.altMaxM &&
-    a.lat != null && a.lon != null
+    !a.onGround && a.lat != null && a.lon != null
   );
 
   console.log(`${airborne.length} aircraft after filtering`);
@@ -248,19 +244,20 @@ async function renderBitmap(html) {
   const png = await page.screenshot({ type: "png" });
   await page.close();
 
-  // Downscale 2x → 1x with Lanczos for smooth edges, then grayscale
+  // Flatten any transparency to white, then downscale and grayscale
   const raw = await sharp(png)
+    .flatten({ background: { r: 255, g: 255, b: 255 } })
     .resize(EPD_W, EPD_H, { kernel: sharp.kernel.lanczos3 })
     .grayscale()
     .raw()
     .toBuffer();
 
-  // Pack to 4-bit (2 pixels per byte) as expected by epd_draw_grayscale_image
+  // Pack to 4-bit: first pixel in low nibble, second in high (driver byte order)
   const packed = Buffer.alloc((EPD_W * EPD_H) / 2);
   for (let i = 0; i < EPD_W * EPD_H; i += 2) {
-    const hi = raw[i]     >> 4; // high nibble
-    const lo = raw[i + 1] >> 4; // low nibble
-    packed[i / 2] = (hi << 4) | lo;
+    const a = (raw[i] >> 4) & 0x0F;
+    const b = (raw[i + 1] >> 4) & 0x0F;
+    packed[i / 2] = a | (b << 4);
   }
 
   return packed;
