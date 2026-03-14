@@ -165,29 +165,48 @@ function msToKmph(ms) {
 async function fetchOpenSky() {
   const { lat, lon } = CONFIG.location;
   const bbox = getBoundingBox(lat, lon, CONFIG.radiusKm);
+  const params = {
+    lamin: bbox.lamin.toFixed(4), lamax: bbox.lamax.toFixed(4),
+    lomin: bbox.lomin.toFixed(4), lomax: bbox.lomax.toFixed(4),
+  };
   const token = await getOpenSkyToken();
   const headers = token ? { Authorization: `Bearer ${token}` } : {};
+  console.log(`OpenSky request bbox: lamin=${params.lamin} lamax=${params.lamax} lomin=${params.lomin} lomax=${params.lomax} (radius ${Math.max(CONFIG.radiusKm, 1)}km, auth: ${!!token})`);
 
-  const resp = await axios.get("https://opensky-network.org/api/states/all", {
-    params: {
-      lamin: bbox.lamin.toFixed(4), lamax: bbox.lamax.toFixed(4),
-      lomin: bbox.lomin.toFixed(4), lomax: bbox.lomax.toFixed(4)
-    },
-    headers,
-    timeout: 30000,
-  });
+  let resp;
+  try {
+    resp = await axios.get("https://opensky-network.org/api/states/all", {
+      params,
+      headers,
+      timeout: 30000,
+      validateStatus: (s) => s < 500,
+    });
+  } catch (err) {
+    console.error("OpenSky request failed:", err.code || err.message, err.response?.status, err.response?.data);
+    return null;
+  }
+
+  if (resp.status === 429) {
+    console.warn("OpenSky rate limited (429). Anonymous: 1 req/10s; authenticated: 1 req/2s. Wait before retrying.");
+    return null;
+  }
+  if (resp.status !== 200) {
+    console.error("OpenSky non-200:", resp.status, resp.data);
+    return null;
+  }
 
   const states = resp.data.states || [];
   console.log(`OpenSky returned ${states.length} aircraft`);
 
+  const ftToM = (v) => (v != null ? v * 0.3048 : null);
   const aircraft = states.map(s => ({
     icao24: s[0],
     callsign: (s[1] || "").trim() || null,
     country: s[2],
     lon: s[5],
     lat: s[6],
-    altM: s[13],   // WGS84 geometric (EGM96) altitude
-    baroAltM: s[7],   // barometric altitude
+    altM: ftToM(s[13]),
+    baroAltM: ftToM(s[7]),
     onGround: s[8],
     speedMs: s[9],
     heading: s[10],
@@ -195,13 +214,25 @@ async function fetchOpenSky() {
   }));
 
   // Filter: airborne + position; altitude: prefer geometric in [min,max], else barometric with no min, max baroAltMaxM
-  const airborne = aircraft.filter(a => {
-    if (a.onGround || a.lat == null || a.lon == null) return false;
-    if (a.altM != null && a.altM >= CONFIG.altMinM && a.altM <= CONFIG.altMaxM) return true;
-    if (a.altM == null && a.baroAltM != null && a.baroAltM <= CONFIG.baroAltMaxM) return true;
-    return false;
-  });
-
+  function filterReason(a) {
+    if (a.onGround) return "on_ground";
+    if (a.lat == null || a.lon == null) return "no_position";
+    if (a.altM != null && a.altM >= CONFIG.altMinM && a.altM <= CONFIG.altMaxM) return null;
+    if (a.altM == null && a.baroAltM != null && a.baroAltM <= CONFIG.baroAltMaxM) return null;
+    if (a.altM != null) return `geo_alt_out_of_range (${a.altM} m, allowed [${CONFIG.altMinM},${CONFIG.altMaxM}])`;
+    if (a.baroAltM != null) return `baro_alt_too_high (${a.baroAltM} m, max ${CONFIG.baroAltMaxM})`;
+    return "no_altitude_data";
+  }
+  const airborne = [];
+  const rejected = [];
+  for (const a of aircraft) {
+    const reason = filterReason(a);
+    if (reason === null) airborne.push(a);
+    else rejected.push({ callsign: a.callsign || a.icao24, reason });
+  }
+  if (rejected.length > 0) {
+    rejected.forEach(({ callsign, reason }) => console.log(`Filter out ${callsign}: ${reason}`));
+  }
   console.log(`${airborne.length} aircraft after filtering`);
 
   // Sort by distance
@@ -271,8 +302,8 @@ function buildHtml(ac, enrichment, updatedAt) {
   const radiusPxY = latSpan ? (CONFIG.radiusKm / 111 / latSpan) * mapH : mapH / 2;
   const planeHeading = ac.heading != null ? Math.round(ac.heading) : 0;
   const mapTiles = getTilesForMap(bbox, mapW, mapH);
-  // Scale map so it fills body height (540 - header ~122 - footer ~46 ≈ 372)
-  const bodyHeight = EPD_H - 122 - 46;
+  // Scale map to body height (header 120px, footer 51px)
+  const bodyHeight = EPD_H - 120 - 51;
   const mapScale = (bodyHeight / mapH).toFixed(4);
 
   const locals = {
@@ -412,7 +443,7 @@ app.get("/preview/aircraft", (req, res) => {
     const enrichment = {
       route: "SYD ➡ MEL",
       originName: "Sydney Kingsford Smith",
-      destName: "Melbourne",
+      destName: "Melbourne Tullamarine",
       airline: "Qantas",
       aircraftType: "Boeing 737-800",
     };
@@ -425,5 +456,57 @@ app.get("/preview/aircraft", (req, res) => {
 });
 
 app.get("/health", (req, res) => res.json({ status: "ok" }));
+
+// Debug: one OpenSky call, returns status and counts (to check rate limit / bbox / filter)
+app.get("/debug/opensky", async (req, res) => {
+  const { lat, lon } = CONFIG.location;
+  const bbox = getBoundingBox(lat, lon, CONFIG.radiusKm);
+  const params = {
+    lamin: bbox.lamin.toFixed(4), lamax: bbox.lamax.toFixed(4),
+    lomin: bbox.lomin.toFixed(4), lomax: bbox.lomax.toFixed(4),
+  };
+  const token = await getOpenSkyToken();
+  const headers = token ? { Authorization: `Bearer ${token}` } : {};
+  const out = { bbox: params, radiusKm: Math.max(CONFIG.radiusKm, 1), authenticated: !!token };
+  try {
+    const resp = await axios.get("https://opensky-network.org/api/states/all", {
+      params,
+      headers,
+      timeout: 15000,
+      validateStatus: () => true,
+    });
+    out.httpStatus = resp.status;
+    out.rateLimited = resp.status === 429;
+    if (resp.status === 429) out.message = "Rate limited. Anonymous: 1 req/10s; with auth: 1 req/2s.";
+    if (resp.status !== 200) {
+      out.error = resp.data;
+      return res.json(out);
+    }
+    const states = resp.data.states || [];
+    const aircraft = states.map(s => ({
+      onGround: s[8], lat: s[6], lon: s[5], altM: s[13], baroAltM: s[7],
+    }));
+    const withPosition = aircraft.filter(a => a.lat != null && a.lon != null);
+    const inAir = withPosition.filter(a => !a.onGround);
+    const passed = inAir.filter(a => {
+      if (a.altM != null && a.altM >= CONFIG.altMinM && a.altM <= CONFIG.altMaxM) return true;
+      if (a.altM == null && a.baroAltM != null && a.baroAltM <= CONFIG.baroAltMaxM) return true;
+      return false;
+    });
+    out.statesReturned = states.length;
+    out.withPosition = withPosition.length;
+    out.airborne = inAir.length;
+    out.passedFilter = passed.length;
+    out.altFilter = `geo [${CONFIG.altMinM}, ${CONFIG.altMaxM}] m, baro max ${CONFIG.baroAltMaxM} m`;
+    if (inAir.length > 0 && passed.length === 0 && inAir[0]) {
+      out.sampleAirborne = { geo: inAir[0].altM, baro: inAir[0].baroAltM };
+    }
+    return res.json(out);
+  } catch (err) {
+    out.error = err.message;
+    out.httpStatus = err.response?.status;
+    return res.status(500).json(out);
+  }
+});
 
 app.listen(PORT, () => console.log(`Server running on http://localhost:${PORT}`));
