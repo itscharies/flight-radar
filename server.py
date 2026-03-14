@@ -49,27 +49,38 @@ async def get_opensky_token() -> str | None:
     global _token, _token_expires_at
 
     if not OPENSKY_CLIENT_ID or not OPENSKY_CLIENT_SECRET:
+        print("No credentials set, using anonymous access")
         return None
 
     # Return cached token if still valid (with 60s buffer)
     if _token and _token_expires_at and datetime.now(timezone.utc) < _token_expires_at:
+        print("Using cached token")
         return _token
 
-    async with httpx.AsyncClient(timeout=10) as client:
-        resp = await client.post(
-            "https://auth.opensky-network.org/auth/realms/opensky-network/protocol/openid-connect/token",
-            data={
-                "grant_type":    "client_credentials",
-                "client_id":     OPENSKY_CLIENT_ID,
-                "client_secret": OPENSKY_CLIENT_SECRET,
-            },
-        )
-        resp.raise_for_status()
-        data = resp.json()
-        _token = data["access_token"]
-        expires_in = data.get("expires_in", 1800)
-        _token_expires_at = datetime.now(timezone.utc) + timedelta(seconds=expires_in - 60)
-        return _token
+    print("Fetching new OpenSky token...")
+    try:
+        async with httpx.AsyncClient(timeout=10) as client:
+            resp = await client.post(
+                "https://auth.opensky-network.org/auth/realms/opensky-network/protocol/openid-connect/token",
+                data={
+                    "grant_type":    "client_credentials",
+                    "client_id":     OPENSKY_CLIENT_ID,
+                    "client_secret": OPENSKY_CLIENT_SECRET,
+                },
+            )
+            resp.raise_for_status()
+            data = resp.json()
+            _token = data["access_token"]
+            expires_in = data.get("expires_in", 1800)
+            _token_expires_at = datetime.now(timezone.utc) + timedelta(seconds=expires_in - 60)
+            print(f"Token acquired, expires in {expires_in}s")
+            return _token
+    except httpx.ConnectTimeout:
+        print("WARNING: Token fetch timed out, falling back to anonymous access")
+        return None
+    except Exception as e:
+        print(f"WARNING: Token fetch failed ({e}), falling back to anonymous access")
+        return None
 
 # ─── OPENSKY ──────────────────────────────────────────────────────────────────
 
