@@ -35,6 +35,9 @@ RADIUS_KM      = float(os.getenv("RADIUS_KM", 50))
 ALTITUDE_MIN_M = float(os.getenv("ALTITUDE_MIN_M", 100))
 MAX_AIRCRAFT   = int(os.getenv("MAX_AIRCRAFT", 5))
 
+OPENSKY_CLIENT_ID = os.getenv("OPENSKY_CLIENT_ID")
+OPENSKY_CLIENT_SECRET = os.getenv("OPENSKY_CLIENT_SECRET")
+
 # ─── OPENSKY ──────────────────────────────────────────────────────────────────
 
 def get_bounding_box(lat: float, lon: float, radius_km: float) -> dict:
@@ -73,12 +76,30 @@ def m_to_ft(metres) -> int | None:
 def ms_to_kts(ms) -> int | None:
     return round(ms * 1.94384) if ms is not None else None
 
+async def get_opensky_token() -> str | None:
+    """Exchange client credentials for a bearer token."""
+    if not OPENSKY_CLIENT_ID or not OPENSKY_CLIENT_SECRET:
+        return None
+    async with httpx.AsyncClient(timeout=10) as client:
+        resp = await client.post(
+            "https://auth.opensky-network.org/auth/realms/opensky-network/protocol/openid-connect/token",
+            data={
+                "grant_type":    "client_credentials",
+                "client_id":     OPENSKY_CLIENT_ID,
+                "client_secret": OPENSKY_CLIENT_SECRET,
+            },
+        )
+        resp.raise_for_status()
+        return resp.json().get("access_token")
+
 async def fetch_opensky(bbox: dict) -> list:
     """Fetch live aircraft states from OpenSky within a bounding box."""
     url = "https://opensky-network.org/api/states/all"
     params = {k: round(v, 4) for k, v in bbox.items()}
 
-    async with httpx.AsyncClient(timeout=30) as client:
+    token = await get_opensky_token()
+    headers = {"Authorization": f"Bearer {token}"} if token else {}
+    async with httpx.AsyncClient(timeout=30, headers=headers) as client:
         try:
             resp = await client.get(url, params=params)
             resp.raise_for_status()
