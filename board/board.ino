@@ -20,14 +20,16 @@ const char* WIFI_SSID     = "LESS DELUXE NETWORK";
 const char* WIFI_PASSWORD = "why?becauseisaidso";
 const char* SERVER_URL    = "http://192.168.1.104:8080/bitmap";
 
-const int UPDATE_INTERVAL_MS = 30000;
+const int UPDATE_INTERVAL_MS = 10000;
 
 // ─── DISPLAY ───────────────────────────────────────────────────────────────────
 #define EPD_W 960
 #define EPD_H 540
 #define BITMAP_SIZE (EPD_W * EPD_H / 2) // 4-bit packed = 259200 bytes
+#define HASH_LEN 32  // MD5 hex
 
 uint8_t* framebuffer = nullptr;
+char lastHash[HASH_LEN + 1] = {0};  // last X-Bitmap-Hash; if set, send If-None-Match to avoid redraw when unchanged
 
 // ─── WIFI ──────────────────────────────────────────────────────────────────────
 
@@ -53,19 +55,41 @@ bool wifi_connect() {
 }
 
 // ─── FETCH BITMAP ──────────────────────────────────────────────────────────────
-
-bool fetch_bitmap() {
+// Returns: 0 = error, 1 = new bitmap (update display), 2 = unchanged (304, skip redraw)
+int fetch_bitmap() {
     HTTPClient http;
     http.begin(SERVER_URL);
     http.setTimeout(30000); // rendering takes a moment
 
+    if (lastHash[0] != '\0') {
+        String ifNoneMatch = "\"";
+        ifNoneMatch += lastHash;
+        ifNoneMatch += "\"";
+        http.addHeader("If-None-Match", ifNoneMatch);
+    }
+
+    const char* headerKeys[] = {"X-Bitmap-Hash"};
+    http.collectHeaders(headerKeys, 1);
+
     int code = http.GET();
     Serial.printf("HTTP status: %d\n", code);
+
+    if (code == 304) {
+        http.end();
+        Serial.println("Bitmap unchanged (304), skipping redraw");
+        return 2;
+    }
 
     if (code != HTTP_CODE_OK) {
         Serial.printf("HTTP error: %d\n", code);
         http.end();
-        return false;
+        return 0;
+    }
+
+    // Store hash for next If-None-Match
+    String newHash = http.header("X-Bitmap-Hash");
+    if (newHash.length() >= (size_t)HASH_LEN) {
+        newHash.substring(0, HASH_LEN).toCharArray(lastHash, HASH_LEN + 1);
     }
 
     int len = http.getSize();
@@ -74,7 +98,7 @@ bool fetch_bitmap() {
     if (len != BITMAP_SIZE) {
         Serial.println("Unexpected bitmap size, aborting");
         http.end();
-        return false;
+        return 0;
     }
 
     // Stream directly into framebuffer
@@ -88,7 +112,7 @@ bool fetch_bitmap() {
 
     http.end();
     Serial.printf("Received %d bytes\n", received);
-    return received == BITMAP_SIZE;
+    return (received == BITMAP_SIZE) ? 1 : 0;
 }
 
 // ─── SETUP ─────────────────────────────────────────────────────────────────────
@@ -118,15 +142,17 @@ void setup() {
 void loop() {
     Serial.println("Fetching bitmap...");
 
-    if (fetch_bitmap()) {
+    int result = fetch_bitmap();
+    if (result == 1) {
         epd_poweron();
         epd_clear();
         epd_draw_grayscale_image(epd_full_screen(), framebuffer);
         epd_poweroff();
         Serial.println("Display updated");
-    } else {
+    } else if (result == 0) {
         Serial.println("Fetch failed, skipping render");
     }
+    // result == 2: unchanged, no redraw (avoids flicker)
 
     delay(UPDATE_INTERVAL_MS);
 }

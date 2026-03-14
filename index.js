@@ -19,6 +19,7 @@ const sharp      = require("sharp");
 const axios      = require("axios");
 const path       = require("path");
 const fs         = require("fs");
+const crypto     = require("crypto");
 const ejs        = require("ejs");
 
 const app  = express();
@@ -333,7 +334,7 @@ async function renderBitmap(html) {
 
 // ─── ROUTES ───────────────────────────────────────────────────────────────────
 
-// Bitmap endpoint — ESP32 fetches this
+// Bitmap endpoint — ESP32 fetches this. Send If-None-Match: <last ETag> to get 304 when unchanged.
 app.get("/bitmap", async (req, res) => {
   try {
     const updatedAt = new Date().toLocaleString("en-AU", {
@@ -345,10 +346,21 @@ app.get("/bitmap", async (req, res) => {
     const html       = buildHtml(ac, enrichment, updatedAt);
     const bitmap     = await renderBitmap(html);
 
+    const hash = crypto.createHash("md5").update(bitmap).digest("hex");
+    const etag = `"${hash}"`;
     res.set("Content-Type", "application/octet-stream");
+    res.set("ETag", etag);
+    res.set("X-Bitmap-Hash", hash);
     res.set("X-Aircraft-Count", ac ? "1" : "0");
-    res.send(bitmap);
 
+    const ifNoneMatch = (req.get("If-None-Match") || "").replace(/^"|"$/g, "").trim();
+    if (ifNoneMatch && ifNoneMatch === hash) {
+      res.status(304).end();
+      console.log(`Bitmap unchanged — 304 (aircraft: ${ac?.callsign || "none"})`);
+      return;
+    }
+
+    res.send(bitmap);
     console.log(`Served bitmap — aircraft: ${ac?.callsign || "none"}`);
   } catch (err) {
     console.error("Bitmap error:", err.message);
@@ -365,6 +377,39 @@ app.get("/preview", async (req, res) => {
     const ac         = await fetchOpenSky();
     const enrichment = ac ? await enrichAircraft(ac.icao24, ac.callsign) : {};
     const html       = buildHtml(ac, enrichment, updatedAt);
+    res.set("Content-Type", "text/html");
+    res.send(html);
+  } catch (err) {
+    res.status(503).send(`Error: ${err.message}`);
+  }
+});
+
+// Test route — preview aircraft template with mock data (no OpenSky fetch)
+app.get("/preview/aircraft", (req, res) => {
+  try {
+    const { lat, lon } = CONFIG.location;
+    const updatedAt = new Date().toLocaleString("en-AU", {
+      day: "numeric", month: "short", hour: "2-digit", minute: "2-digit", timeZone: "Australia/Sydney"
+    });
+    const ac = {
+      icao24: "abc123",
+      callsign: "QFA456",
+      country: "AU",
+      lat: lat + 0.02,
+      lon: lon + 0.01,
+      altM: 3200,
+      speedMs: 220,
+      heading: 85,
+      vertRate: 2.1,
+    };
+    const enrichment = {
+      route: "SYD → MEL",
+      originName: "Sydney Kingsford Smith",
+      destName: "Melbourne",
+      airline: "Qantas",
+      aircraftType: "Boeing 737-800",
+    };
+    const html = buildHtml(ac, enrichment, updatedAt);
     res.set("Content-Type", "text/html");
     res.send(html);
   } catch (err) {

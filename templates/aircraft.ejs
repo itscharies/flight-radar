@@ -19,6 +19,7 @@
       <div class="route"><%- enrichment.route || 'Route unknown' %></div>
       <div class="airport-name"><%- enrichment.originName || '' %></div>
       <div class="airport-name"><%- enrichment.destName || '' %></div>
+      <div class="divider"></div>
       <div class="stats-under-route">
         <div class="stat-block">
           <span class="stat-label">Altitude</span>
@@ -38,8 +39,9 @@
           <img class="map-tile" src="<%= t.url %>" alt="" style="left:<%= t.left %>px;top:<%= t.top %>px;width:<%= t.width %>px;height:<%= t.height %>px;">
           <% }); %>
           <svg class="map-overlay" viewBox="0 0 <%= mapW %> <%= mapH %>" width="<%= mapW %>" height="<%= mapH %>">
+            <text x="<%= centerX %>" y="<%= centerY %>" text-anchor="middle" dominant-baseline="middle" style="font-size: 64px;">🏠</text>
             <g transform="translate(<%= planeX %>,<%= planeY %>) rotate(<%= planeHeading - 45 %>)">
-              <text style="font-size: 32px;">✈️</text>
+              <text style="font-size: 64px;">✈️</text>
             </g>
           </svg>
         </div>

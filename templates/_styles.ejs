@@ -1,5 +1,5 @@
 <style>
-  * { margin: 0; padding: 0; box-sizing: border-box; }
+  * { margin: 0; padding: 0; box-sizing: border-box; filter: grayscale(1); }
   html, body {
     width: 960px; height: 540px; overflow: hidden;
     background: #fff; font-family: 'Arial', sans-serif;
@@ -40,6 +40,9 @@
   .airport-name {
     font-size: 20px; color: #666; margin-top: -8px;
   }
+  .divider {
+    height: 2px; border-bottom: 2px solid #ddd; margin: 20px 0;
+  }
   .stats-under-route {
     display: flex; gap: 24px; margin-top: 12px;
   }
@@ -76,7 +79,7 @@
     position: absolute;
     display: block;
     pointer-events: none;
-    filter: brightness(0.69) contrast(3) grayscale(1);
+    filter: brightness(0.69) contrast(3);
   }
   .map-overlay {
     position: absolute;
