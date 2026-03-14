@@ -19,6 +19,7 @@ const sharp      = require("sharp");
 const axios      = require("axios");
 const path       = require("path");
 const fs         = require("fs");
+const ejs        = require("ejs");
 
 const app  = express();
 const PORT = process.env.PORT || 8080;
@@ -40,9 +41,11 @@ const CONFIG = {
   },
 };
 
-// Display dimensions
+// Display dimensions (final bitmap)
 const EPD_W = 960;
 const EPD_H = 540;
+// Render at 2x then downscale for smoother edges
+const RENDER_SCALE = 2;
 
 // ─── OPENSKY TOKEN CACHE ──────────────────────────────────────────────────────
 
@@ -185,157 +188,38 @@ async function enrichAircraft(icao24, callsign) {
 
 // ─── HTML TEMPLATE ────────────────────────────────────────────────────────────
 
+const TEMPLATES_DIR = path.join(__dirname, "templates");
+
 function buildHtml(ac, enrichment, updatedAt) {
-  if (!ac) return `
-    <!DOCTYPE html>
-    <html>
-    <head>
-      <meta charset="utf-8">
-      <style>
-        * { margin: 0; padding: 0; box-sizing: border-box; }
-        body {
-          width: 960px; height: 540px; overflow: hidden;
-          background: #fff; font-family: 'Arial', sans-serif;
-          display: flex; flex-direction: column;
-          align-items: center; justify-content: center;
-        }
-        h1 { font-size: 36px; color: #333; margin-bottom: 12px; }
-        p  { font-size: 20px; color: #999; }
-      </style>
-    </head>
-    <body>
-      <h1>✈ No Aircraft Overhead</h1>
-      <p>Updated ${updatedAt}</p>
-    </body>
-    </html>
-  `;
+  if (!ac) {
+    return ejs.render(
+      fs.readFileSync(path.join(TEMPLATES_DIR, "empty.ejs"), "utf8"),
+      { updatedAt },
+      { filename: path.join(TEMPLATES_DIR, "empty.ejs") }
+    );
+  }
 
   const vstatus = verticalStatus(ac.vertRate);
   const vArrow  = vstatus === "Climbing" ? "↑" : vstatus === "Descending" ? "↓" : "→";
+  const altitude = ac.altM != null ? Math.round(ac.altM) + " m" : "N/A";
+  const speed    = msToKts(ac.speedMs) != null ? msToKts(ac.speedMs) + " kts" : "N/A";
+  const heading  = ac.heading != null ? Math.round(ac.heading) + "° " + headingToCompass(ac.heading) : "N/A";
 
-  return `
-    <!DOCTYPE html>
-    <html>
-    <head>
-      <meta charset="utf-8">
-      <style>
-        * { margin: 0; padding: 0; box-sizing: border-box; }
-        body {
-          width: 960px; height: 540px; overflow: hidden;
-          background: #fff; font-family: 'Arial', sans-serif;
-          color: #111;
-        }
-
-        /* ── Header ── */
-        .header {
-          display: flex; align-items: center; justify-content: space-between;
-          padding: 18px 28px 14px;
-          border-bottom: 2px solid #111;
-        }
-        .callsign  { font-size: 42px; font-weight: bold; letter-spacing: 2px; }
-        .airline   { font-size: 22px; color: #555; margin-top: 4px; }
-        .ac-type   { font-size: 18px; color: #888; text-align: right; }
-
-        /* ── Body ── */
-        .body {
-          display: flex; height: 390px;
-        }
-
-        /* Left column */
-        .left {
-          flex: 1; padding: 24px 28px;
-          border-right: 1px solid #ddd;
-          display: flex; flex-direction: column; gap: 16px;
-        }
-        .route {
-          font-size: 32px; font-weight: bold;
-        }
-        .airport-name {
-          font-size: 16px; color: #666; margin-top: -10px;
-        }
-        .status-badge {
-          display: inline-block;
-          font-size: 18px; font-weight: bold;
-          padding: 6px 16px;
-          border: 2px solid #111;
-          border-radius: 4px;
-          margin-top: 8px;
-        }
-
-        /* Right column */
-        .right {
-          width: 340px; padding: 24px 28px;
-          display: flex; flex-direction: column; gap: 18px;
-        }
-        .stat { display: flex; flex-direction: column; }
-        .stat-label {
-          font-size: 12px; text-transform: uppercase;
-          letter-spacing: 1px; color: #999;
-        }
-        .stat-value {
-          font-size: 28px; font-weight: bold;
-        }
-        .stat-grid {
-          display: grid; grid-template-columns: 1fr 1fr; gap: 18px;
-        }
-
-        /* ── Footer ── */
-        .footer {
-          border-top: 1px solid #ddd;
-          padding: 10px 28px;
-          display: flex; justify-content: space-between;
-          font-size: 14px; color: #999;
-        }
-      </style>
-    </head>
-    <body>
-
-      <div class="header">
-        <div>
-          <div class="callsign">✈ ${ac.callsign || "Unknown"}</div>
-          <div class="airline">${enrichment.airline || ac.country || ""}</div>
-        </div>
-        <div class="ac-type">${enrichment.aircraftType || ""}</div>
-      </div>
-
-      <div class="body">
-        <div class="left">
-          <div class="route">${enrichment.route || "Route unknown"}</div>
-          <div class="airport-name">${enrichment.originName || ""}</div>
-          <div class="airport-name">${enrichment.destName || ""}</div>
-          <div class="status-badge">${vArrow} ${vstatus}</div>
-        </div>
-
-        <div class="right">
-          <div class="stat-grid">
-            <div class="stat">
-              <span class="stat-label">Altitude</span>
-              <span class="stat-value">${ac.altM != null ? Math.round(ac.altM) + " m" : "N/A"}</span>
-            </div>
-            <div class="stat">
-              <span class="stat-label">Speed</span>
-              <span class="stat-value">${msToKts(ac.speedMs) != null ? msToKts(ac.speedMs) + " kts" : "N/A"}</span>
-            </div>
-            <div class="stat">
-              <span class="stat-label">Heading</span>
-              <span class="stat-value">${ac.heading != null ? Math.round(ac.heading) + "° " + headingToCompass(ac.heading) : "N/A"}</span>
-            </div>
-            <div class="stat">
-              <span class="stat-label">Distance</span>
-              <span class="stat-value">${ac.distanceKm} km</span>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <div class="footer">
-        <span>${CONFIG.location.name}</span>
-        <span>Updated ${updatedAt}</span>
-      </div>
-
-    </body>
-    </html>
-  `;
+  return ejs.render(
+    fs.readFileSync(path.join(TEMPLATES_DIR, "aircraft.ejs"), "utf8"),
+    {
+      ac,
+      enrichment,
+      updatedAt,
+      vstatus,
+      vArrow,
+      altitude,
+      speed,
+      heading,
+      locationName: CONFIG.location.name,
+    },
+    { filename: path.join(TEMPLATES_DIR, "aircraft.ejs") }
+  );
 }
 
 // ─── PUPPETEER + SHARP ────────────────────────────────────────────────────────
@@ -355,14 +239,18 @@ async function getBrowser() {
 async function renderBitmap(html) {
   const b    = await getBrowser();
   const page = await b.newPage();
-  await page.setViewport({ width: EPD_W, height: EPD_H });
+  await page.setViewport({
+    width:             EPD_W,
+    height:            EPD_H,
+    deviceScaleFactor: RENDER_SCALE,
+  });
   await page.setContent(html, { waitUntil: "networkidle0" });
   const png = await page.screenshot({ type: "png" });
   await page.close();
 
-  // Convert PNG → 960x540 grayscale raw buffer (1 byte per pixel, 0=black 255=white)
+  // Downscale 2x → 1x with Lanczos for smooth edges, then grayscale
   const raw = await sharp(png)
-    .resize(EPD_W, EPD_H)
+    .resize(EPD_W, EPD_H, { kernel: sharp.kernel.lanczos3 })
     .grayscale()
     .raw()
     .toBuffer();

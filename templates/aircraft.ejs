@@ -1,0 +1,53 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <%- include('_styles') %>
+</head>
+<body>
+
+  <div class="header">
+    <div>
+      <div class="callsign">✈ <%- ac.callsign || 'Unknown' %></div>
+      <div class="airline"><%- enrichment.airline || ac.country || '' %></div>
+    </div>
+    <div class="ac-type"><%- enrichment.aircraftType || '' %></div>
+  </div>
+
+  <div class="body">
+    <div class="left">
+      <div class="route"><%- enrichment.route || 'Route unknown' %></div>
+      <div class="airport-name"><%- enrichment.originName || '' %></div>
+      <div class="airport-name"><%- enrichment.destName || '' %></div>
+      <div class="status-badge"><%- vArrow %> <%- vstatus %></div>
+    </div>
+
+    <div class="right">
+      <div class="stat-grid">
+        <div class="stat">
+          <span class="stat-label">Altitude</span>
+          <span class="stat-value"><%- altitude %></span>
+        </div>
+        <div class="stat">
+          <span class="stat-label">Speed</span>
+          <span class="stat-value"><%- speed %></span>
+        </div>
+        <div class="stat">
+          <span class="stat-label">Heading</span>
+          <span class="stat-value"><%- heading %></span>
+        </div>
+        <div class="stat">
+          <span class="stat-label">Distance</span>
+          <span class="stat-value"><%- ac.distanceKm %> km</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="footer">
+    <span><%- locationName %></span>
+    <span>Updated <%- updatedAt %></span>
+  </div>
+
+</body>
+</html>
