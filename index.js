@@ -85,6 +85,54 @@ function getBoundingBox(lat, lon, radiusKm) {
   return { lamin: lat - dLat, lamax: lat + dLat, lomin: lon - dLon, lomax: lon + dLon };
 }
 
+// OSM tile math (Web Mercator)
+function lonToTileX(lon, z) {
+  const n = 2 ** z;
+  return ((lon + 180) / 360) * n;
+}
+function latToTileY(lat, z) {
+  const n = 2 ** z;
+  const latRad = (lat * Math.PI) / 180;
+  return ((1 - Math.log(Math.tan(latRad) + 1 / Math.cos(latRad)) / Math.PI) / 2) * n;
+}
+function tileYToLat(ty, z) {
+  const n = 2 ** z;
+  return (180 / Math.PI) * (2 * Math.atan(Math.exp(Math.PI * (1 - (2 * ty) / n))) - Math.PI / 2);
+}
+
+function getTilesForMap(bbox, mapW, mapH) {
+  const { lamin, lamax, lomin, lomax } = bbox;
+  const lonSpan = lomax - lomin;
+  const latSpan = lamax - lamin;
+  // 256px tile at zoom z covers 360/2^z deg; we want bbox to fill map => 2^z = map*360/(256*span)
+  const zFromLon = Math.log2((mapW * 360) / (256 * lonSpan));
+  const zFromLat = Math.log2((mapH * 360) / (256 * latSpan * Math.cos((lamax * Math.PI) / 180)));
+  const z = Math.min(14, Math.max(6, Math.floor(Math.min(zFromLon, zFromLat))));
+  const n = 2 ** z;
+  const xMin = Math.floor(lonToTileX(lomin, z));
+  const xMax = Math.floor(lonToTileX(lomax, z));
+  const yMin = Math.floor(latToTileY(lamax, z));
+  const yMax = Math.floor(latToTileY(lamin, z));
+  const tiles = [];
+  for (let tx = xMin; tx <= xMax; tx++) {
+    for (let ty = yMin; ty <= yMax; ty++) {
+      const tileLonMin = (tx / n) * 360 - 180;
+      const tileLonMax = ((tx + 1) / n) * 360 - 180;
+      const tileLatMax = tileYToLat(ty, z);
+      const tileLatMin = tileYToLat(ty + 1, z);
+      const left = ((tileLonMin - lomin) / lonSpan) * mapW;
+      const top = ((lamax - tileLatMax) / latSpan) * mapH;
+      const width = ((tileLonMax - tileLonMin) / lonSpan) * mapW;
+      const height = ((tileLatMax - tileLatMin) / latSpan) * mapH;
+      tiles.push({
+        url: `https://a.basemaps.cartocdn.com/rastertiles/voyager_nolabels/${z}/${tx}/${ty}@2x.png`,
+        left, top, width, height,
+      });
+    }
+  }
+  return tiles;
+}
+
 function haversineKm(lat1, lon1, lat2, lon2) {
   const R = 6371;
   const dLat = ((lat2 - lat1) * Math.PI) / 180;
@@ -200,24 +248,39 @@ function buildHtml(ac, enrichment, updatedAt) {
     );
   }
 
-  const vstatus = verticalStatus(ac.vertRate);
-  const vArrow  = vstatus === "Climbing" ? "↑" : vstatus === "Descending" ? "↓" : "→";
-  const altitude       = ac.altM != null ? Math.round(ac.altM) + " m" : "N/A";
-  const speed          = msToKmph(ac.speedMs) != null ? msToKmph(ac.speedMs) + " km/h" : "N/A";
-  const headingDegrees = ac.heading != null ? Math.round(ac.heading) : null;
+  const vstatus   = verticalStatus(ac.vertRate);
+  const altitude  = ac.altM != null ? Math.round(ac.altM) + " m" : "N/A";
+  const speed     = msToKmph(ac.speedMs) != null ? msToKmph(ac.speedMs) + " km/h" : "N/A";
+  const { lat, lon } = CONFIG.location;
+  const bbox      = getBoundingBox(lat, lon, CONFIG.radiusKm);
+  const mapDisplaySize = 356;
+  const mapW      = mapDisplaySize * 2;
+  const mapH      = mapDisplaySize * 2;
+  const lonSpan   = bbox.lomax - bbox.lomin;
+  const latSpan   = bbox.lamax - bbox.lamin;
+  const planeX    = lonSpan ? ((ac.lon - bbox.lomin) / lonSpan) * mapW : mapW / 2;
+  const planeY    = latSpan ? ((bbox.lamax - ac.lat) / latSpan) * mapH : mapH / 2;
+  const centerX   = mapW / 2;
+  const centerY   = mapH / 2;
+  const radiusPxX = lonSpan ? (CONFIG.radiusKm / (111 * Math.cos((lat * Math.PI) / 180)) / lonSpan) * mapW : mapW / 2;
+  const radiusPxY = latSpan ? (CONFIG.radiusKm / 111 / latSpan) * mapH : mapH / 2;
+  const planeHeading = ac.heading != null ? Math.round(ac.heading) : 0;
+  const mapTiles = getTilesForMap(bbox, mapW, mapH);
+
+  const locals = {
+    ac,
+    enrichment,
+    updatedAt,
+    vstatus,
+    altitude,
+    speed,
+    locationName: CONFIG.location.name,
+    mapW, mapH, centerX, centerY, radiusPxX, radiusPxY, planeX, planeY, planeHeading,
+    mapTiles,
+  };
   return ejs.render(
     fs.readFileSync(path.join(TEMPLATES_DIR, "aircraft.ejs"), "utf8"),
-    {
-      ac,
-      enrichment,
-      updatedAt,
-      vstatus,
-      vArrow,
-      altitude,
-      speed,
-      headingDegrees,
-      locationName: CONFIG.location.name,
-    },
+    locals,
     { filename: path.join(TEMPLATES_DIR, "aircraft.ejs") }
   );
 }
@@ -244,6 +307,7 @@ async function renderBitmap(html) {
     height:            EPD_H,
     deviceScaleFactor: RENDER_SCALE,
   });
+  await page.setUserAgent("FlightRadar/1.0 (https://github.com/flight-radar)");
   await page.setContent(html, { waitUntil: "networkidle0" });
   const png = await page.screenshot({ type: "png" });
   await page.close();

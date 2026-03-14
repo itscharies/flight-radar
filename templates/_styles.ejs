@@ -40,34 +40,49 @@
   .airport-name {
     font-size: 20px; color: #666; margin-top: -8px;
   }
-
-  /* Right column */
-  .right {
-    flex-shrink: 0; width: 420px; padding: 28px 32px;
-    display: flex; flex-direction: column; gap: 22px;
-    overflow: hidden;
+  .stats-under-route {
+    display: flex; gap: 24px; margin-top: 12px;
   }
-  .stat { display: flex; flex-direction: column; }
-  .stat-label {
+  .stat-block {
+    display: flex; flex-direction: column; gap: 4px;
+  }
+  .stat-block .stat-label {
     font-size: 14px; text-transform: uppercase;
     letter-spacing: 1px; color: #999;
   }
-  .stat-value {
-    font-size: 34px; font-weight: bold;
+  .stat-block .stat-value {
+    font-size: 22px; font-weight: bold; color: #111;
   }
-  .stat-value-heading {
-    display: inline-flex; align-items: center; gap: 10px;
+
+  /* Right column — map (full size, no padding) */
+  .right.map-column {
+    flex-shrink: 0; width: 356px; padding: 0;
+    display: flex; align-items: center; justify-content: center;
+    overflow: hidden;
   }
-  .heading-arrow {
-    display: inline-block;
-    font-size: 28px; line-height: 1;
-    transform-origin: center center;
+  .map-wrap {
+    position: relative;
+    overflow: hidden;
+    flex-shrink: 0;
   }
-  .heading-label {
-    font-size: 34px; font-weight: bold;
+  .map-inner {
+    position: absolute;
+    left: 0;
+    top: 0;
+    transform: scale(0.5);
+    transform-origin: 0 0;
   }
-  .stat-grid {
-    display: grid; grid-template-columns: 1fr 1fr; gap: 22px;
+  .map-tile {
+    position: absolute;
+    display: block;
+    pointer-events: none;
+    filter: brightness(0.69) contrast(3) grayscale(1);
+  }
+  .map-overlay {
+    position: absolute;
+    left: 0;
+    top: 0;
+    pointer-events: none;
   }
 
   /* ── Footer ── */

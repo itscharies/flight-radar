@@ -8,7 +8,7 @@
 
   <div class="header">
     <div>
-      <div class="callsign"><% if (vstatus === 'Climbing') { %>🛫<% } else if (vstatus === 'Descending') { %>🛬<% } else { %>✈️<% } %> <%- ac.callsign || 'Unknown' %></div>
+      <div class="callsign"><%- ac.callsign || 'Unknown' %> <% if (vstatus === 'Climbing') { %>🛫<% } else if (vstatus === 'Descending') { %>🛬<% } else { %>✈️<% } %></div>
       <div class="airline"><%- enrichment.airline || ac.country || '' %></div>
     </div>
     <div class="ac-type"><%- enrichment.aircraftType || '' %></div>
@@ -19,32 +19,29 @@
       <div class="route"><%- enrichment.route || 'Route unknown' %></div>
       <div class="airport-name"><%- enrichment.originName || '' %></div>
       <div class="airport-name"><%- enrichment.destName || '' %></div>
-    </div>
-
-    <div class="right">
-      <div class="stat-grid">
-        <div class="stat">
+      <div class="stats-under-route">
+        <div class="stat-block">
           <span class="stat-label">Altitude</span>
           <span class="stat-value"><%- altitude %></span>
         </div>
-        <div class="stat">
+        <div class="stat-block">
           <span class="stat-label">Speed</span>
           <span class="stat-value"><%- speed %></span>
         </div>
-        <div class="stat">
-          <span class="stat-label">Heading</span>
-          <span class="stat-value stat-value-heading">
-            <% if (headingDegrees != null) { %>
-              <span class="stat-value" ><%- headingDegrees %>°</span>
-              <span class="heading-arrow" style="transform: rotate(<%= headingDegrees %>deg);">▲</span>
-            <% } else { %>
-              N/A
-            <% } %>
-          </span>
-        </div>
-        <div class="stat">
-          <span class="stat-label">Distance</span>
-          <span class="stat-value"><%- ac.distanceKm %> km</span>
+      </div>
+    </div>
+
+    <div class="right map-column">
+      <div class="map-wrap" style="width:356px;height:356px;">
+        <div class="map-inner" style="width:<%= mapW %>px;height:<%= mapH %>px;">
+          <% mapTiles.forEach(function(t) { %>
+          <img class="map-tile" src="<%= t.url %>" alt="" style="left:<%= t.left %>px;top:<%= t.top %>px;width:<%= t.width %>px;height:<%= t.height %>px;">
+          <% }); %>
+          <svg class="map-overlay" viewBox="0 0 <%= mapW %> <%= mapH %>" width="<%= mapW %>" height="<%= mapH %>">
+            <g transform="translate(<%= planeX %>,<%= planeY %>) rotate(<%= planeHeading - 45 %>)">
+              <text style="font-size: 32px;">✈️</text>
+            </g>
+          </svg>
         </div>
       </div>
     </div>
