@@ -86,6 +86,13 @@ function setCooldown(ac, enrichment) {
   }
 }
 
+// Bitmap cache: avoid re-render when (ac, enrichment) unchanged
+let bitmapCache = null; // { key: string, bitmap: Buffer, hash: string }
+
+function contentKey(ac, enrichment) {
+  return crypto.createHash("md5").update(JSON.stringify({ ac, enrichment })).digest("hex");
+}
+
 // ─── OPENSKY TOKEN CACHE ──────────────────────────────────────────────────────
 
 let cachedToken = null;
@@ -302,25 +309,60 @@ async function getAircraftForRequest() {
 
 // ─── ENRICHMENT ───────────────────────────────────────────────────────────────
 
+/** OpenSky flights/aircraft (auth): est. departure/arrival airports. Batch-updated at night so often only previous day. */
+async function fetchOpenSkyRoute(icao24) {
+  const token = await getOpenSkyToken();
+  if (!token) return null;
+  const now = Math.floor(Date.now() / 1000);
+  const begin = now - 2 * 24 * 3600;
+  try {
+    const resp = await axios.get("https://opensky-network.org/api/flights/aircraft", {
+      params: { icao24: icao24.toLowerCase(), begin, end: now },
+      headers: { Authorization: `Bearer ${token}` },
+      timeout: 10000,
+      validateStatus: (s) => s === 200 || s === 404,
+    });
+    if (resp.status === 404 || !Array.isArray(resp.data) || resp.data.length === 0) return null;
+    const flights = resp.data;
+    const current = flights.find((f) => f.firstSeen <= now && now <= f.lastSeen) || flights[flights.length - 1];
+    const origin = current.estDepartureAirport || null;
+    const dest = current.estArrivalAirport || null;
+    if (origin && dest) return { origin, dest };
+    return null;
+  } catch (_) {
+    return null;
+  }
+}
+
 async function enrichAircraft(icao24, callsign) {
   const result = { airline: null, route: null, aircraftType: null, originName: null, destName: null };
   if (!callsign) return result;
 
-  try {
-    const routeResp = await axios.get(`https://api.adsbdb.com/v0/callsign/${callsign}`, { timeout: 5000 });
-    const fr = routeResp.data?.response?.flightroute;
-    if (fr) {
-      result.route = `${fr.origin?.iata_code || "?"} ➡ ${fr.destination?.iata_code || "?"}`;
-      result.originName = fr.origin?.name || null;
-      result.destName = fr.destination?.name || null;
-      result.airline = fr.airline?.name || null;
-    }
-  } catch (_) { }
+  const [openSkyRoute, ...adsb] = await Promise.all([
+    fetchOpenSkyRoute(icao24),
+    axios.get(`https://api.adsbdb.com/v0/callsign/${callsign}`, { timeout: 5000 }).catch(() => null),
+    axios.get(`https://api.adsbdb.com/v0/aircraft/${icao24}`, { timeout: 5000 }).catch(() => null),
+  ]);
 
-  try {
-    const acResp = await axios.get(`https://api.adsbdb.com/v0/aircraft/${icao24}`, { timeout: 5000 });
-    result.aircraftType = acResp.data?.response?.aircraft?.type || null;
-  } catch (_) { }
+  if (openSkyRoute) {
+    result.route = `${openSkyRoute.origin} ➡ ${openSkyRoute.dest}`;
+  }
+
+  const routeResp = adsb[0];
+  if (routeResp?.data?.response?.flightroute) {
+    const fr = routeResp.data.response.flightroute;
+    if (!openSkyRoute) {
+      result.route = `${fr.origin?.iata_code || "?"} ➡ ${fr.destination?.iata_code || "?"}`;
+    }
+    result.originName = fr.origin?.name || null;
+    result.destName = fr.destination?.name || null;
+    result.airline = fr.airline?.name || null;
+  }
+
+  const acResp = adsb[1];
+  if (acResp?.data?.response?.aircraft?.type) {
+    result.aircraftType = acResp.data.response.aircraft.type;
+  }
 
   return result;
 }
@@ -429,15 +471,23 @@ async function renderBitmap(html) {
 // Bitmap endpoint — ESP32 fetches this. Send If-None-Match: <last ETag> to get 304 when unchanged.
 app.get("/bitmap", async (req, res) => {
   try {
-    const updatedAt = new Date().toLocaleString("en-AU", {
-      day: "numeric", month: "short", hour: "2-digit", minute: "2-digit", timeZone: "Australia/Sydney"
-    });
-
     const { ac, enrichment } = await getAircraftForRequest();
-    const html = buildHtml(ac, enrichment, updatedAt);
-    const bitmap = await renderBitmap(html);
+    const key = contentKey(ac, enrichment);
 
-    const hash = crypto.createHash("md5").update(bitmap).digest("hex");
+    let bitmap, hash;
+    if (bitmapCache && bitmapCache.key === key) {
+      bitmap = bitmapCache.bitmap;
+      hash = bitmapCache.hash;
+    } else {
+      const updatedAt = new Date().toLocaleString("en-AU", {
+        day: "numeric", month: "short", hour: "2-digit", minute: "2-digit", timeZone: "Australia/Sydney"
+      });
+      const html = buildHtml(ac, enrichment, updatedAt);
+      bitmap = await renderBitmap(html);
+      hash = crypto.createHash("md5").update(bitmap).digest("hex");
+      bitmapCache = { key, bitmap, hash };
+    }
+
     const etag = `"${hash}"`;
     res.set("Content-Type", "application/octet-stream");
     res.set("ETag", etag);
