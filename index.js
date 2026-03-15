@@ -41,6 +41,14 @@ const CONFIG = {
     clientId: process.env.OPENSKY_CLIENT_ID,
     clientSecret: process.env.OPENSKY_CLIENT_SECRET,
   },
+  // Sydney airport curfew: no OpenSky requests 23:00–06:00 Sydney time
+  curfew: {
+    tz: "Australia/Sydney",
+    startHour: 23, // 11 PM
+    endHour: 6,    // 6 AM
+  },
+  // After detecting an aircraft, skip OpenSky for this long (fewer requests)
+  cooldownMs: Number(process.env.OPENSKY_COOLDOWN_MS),
 };
 
 // Display dimensions (final bitmap)
@@ -48,6 +56,35 @@ const EPD_W = 960;
 const EPD_H = 540;
 // Render at 2x then downscale for smoother edges
 const RENDER_SCALE = 2;
+
+// ─── REQUEST OPTIMIZATION (curfew + cooldown) ──────────────────────────────────
+
+function isSydneyCurfew() {
+  const sydney = new Date().toLocaleString("en-AU", { timeZone: CONFIG.curfew.tz, hour: "numeric", hour12: false });
+  const hour = parseInt(sydney, 10);
+  if (CONFIG.curfew.startHour > CONFIG.curfew.endHour) {
+    return hour >= CONFIG.curfew.startHour || hour < CONFIG.curfew.endHour;
+  }
+  return hour >= CONFIG.curfew.startHour && hour < CONFIG.curfew.endHour;
+}
+
+let lastAircraftCached = null;  // { ac, enrichment }
+let cooldownUntil = 0;
+
+function useCachedAircraft() {
+  if (!lastAircraftCached || Date.now() >= cooldownUntil) return null;
+  return lastAircraftCached;
+}
+
+function setCooldown(ac, enrichment) {
+  if (ac) {
+    lastAircraftCached = { ac, enrichment };
+    cooldownUntil = Date.now() + CONFIG.cooldownMs;
+  } else {
+    lastAircraftCached = null;
+    cooldownUntil = 0;
+  }
+}
 
 // ─── OPENSKY TOKEN CACHE ──────────────────────────────────────────────────────
 
@@ -246,6 +283,23 @@ async function fetchOpenSky() {
   return ac;
 }
 
+/** Returns { ac, enrichment }. Uses curfew (no fetch), then cooldown (cached), else fetches OpenSky + enrichment. */
+async function getAircraftForRequest() {
+  if (isSydneyCurfew()) {
+    setCooldown(null, null);
+    return { ac: null, enrichment: {} };
+  }
+  const cached = useCachedAircraft();
+  if (cached) {
+    console.log(`OpenSky skipped (cooldown until ${new Date(cooldownUntil).toISOString()}) — using cached ${cached.ac?.callsign || "?"}`);
+    return { ac: cached.ac, enrichment: cached.enrichment };
+  }
+  const ac = await fetchOpenSky();
+  const enrichment = ac ? await enrichAircraft(ac.icao24, ac.callsign) : {};
+  setCooldown(ac, enrichment);
+  return { ac, enrichment };
+}
+
 // ─── ENRICHMENT ───────────────────────────────────────────────────────────────
 
 async function enrichAircraft(icao24, callsign) {
@@ -379,8 +433,7 @@ app.get("/bitmap", async (req, res) => {
       day: "numeric", month: "short", hour: "2-digit", minute: "2-digit", timeZone: "Australia/Sydney"
     });
 
-    const ac = await fetchOpenSky();
-    const enrichment = ac ? await enrichAircraft(ac.icao24, ac.callsign) : {};
+    const { ac, enrichment } = await getAircraftForRequest();
     const html = buildHtml(ac, enrichment, updatedAt);
     const bitmap = await renderBitmap(html);
 
@@ -412,8 +465,7 @@ app.get("/preview", async (req, res) => {
     const updatedAt = new Date().toLocaleString("en-AU", {
       day: "numeric", month: "short", hour: "2-digit", minute: "2-digit", timeZone: "Australia/Sydney"
     });
-    const ac = await fetchOpenSky();
-    const enrichment = ac ? await enrichAircraft(ac.icao24, ac.callsign) : {};
+    const { ac, enrichment } = await getAircraftForRequest();
     const html = buildHtml(ac, enrichment, updatedAt);
     res.set("Content-Type", "text/html");
     res.send(html);
@@ -478,6 +530,14 @@ app.get("/debug/opensky", async (req, res) => {
     out.httpStatus = resp.status;
     out.rateLimited = resp.status === 429;
     if (resp.status === 429) out.message = "Rate limited. Anonymous: 1 req/10s; with auth: 1 req/2s.";
+    const rateHeaders = {};
+    if (resp.headers && typeof resp.headers === "object") {
+      for (const [k, v] of Object.entries(resp.headers)) {
+        if (/rate|credit|limit|remain|reset|quota/i.test(k)) rateHeaders[k] = v;
+      }
+    }
+    if (Object.keys(rateHeaders).length > 0) out.creditsOrRateHeaders = rateHeaders;
+    else out.creditsOrRateHeaders = "(no rate/credit headers in response)";
     if (resp.status !== 200) {
       out.error = resp.data;
       return res.json(out);

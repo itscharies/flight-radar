@@ -20,7 +20,7 @@ const char* WIFI_SSID     = "LESS DELUXE NETWORK";
 const char* WIFI_PASSWORD = "why?becauseisaidso";
 const char* SERVER_URL    = "http://192.168.1.104:8080/bitmap";
 
-const int UPDATE_INTERVAL_MS = 10000;
+const int UPDATE_INTERVAL_MS = 15000;
 
 // ─── DISPLAY ───────────────────────────────────────────────────────────────────
 #define EPD_W 960
