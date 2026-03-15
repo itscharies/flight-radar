@@ -212,6 +212,7 @@ async function fetchOpenSky() {
   const params = {
     lamin: bbox.lamin.toFixed(4), lamax: bbox.lamax.toFixed(4),
     lomin: bbox.lomin.toFixed(4), lomax: bbox.lomax.toFixed(4),
+    extended: 1, // get category (index 17); 8 = Rotorcraft
   };
   const token = await getOpenSkyToken();
   const headers = token ? { Authorization: `Bearer ${token}` } : {};
@@ -255,6 +256,7 @@ async function fetchOpenSky() {
     speedMs: s[9],
     heading: s[10],
     vertRate: s[11],
+    category: s[17], // ICAO emitter category; 8 = Rotorcraft
   }));
 
   // Filter: airborne + position; altitude: prefer geometric in [min,max], else barometric with no min, max baroAltMaxM
@@ -367,6 +369,13 @@ async function enrichAircraft(icao24, callsign) {
   return result;
 }
 
+/** True if aircraft is a helicopter (OpenSky category 8 = Rotorcraft, or type string suggests heli). */
+function isHelicopter(ac, enrichment) {
+  if (ac?.category === 8) return true;
+  const t = (enrichment?.aircraftType || "").toLowerCase();
+  return /helicopter|rotorcraft|helo\b|^h\d|^ec\d|^as\d|bell \d|robinson|^aw\d|^bk\d|ka-|mi-|s-76|s-92/i.test(t);
+}
+
 // ─── HTML TEMPLATE ────────────────────────────────────────────────────────────
 
 const TEMPLATES_DIR = path.join(__dirname, "templates");
@@ -410,6 +419,7 @@ function buildHtml(ac, enrichment, updatedAt) {
     altitude,
     speed,
     locationName: CONFIG.location.name,
+    isHelicopter: isHelicopter(ac, enrichment),
     mapW, mapH, mapScale, centerX, centerY, radiusPxX, radiusPxY, planeX, planeY, planeHeading,
     mapTiles,
   };

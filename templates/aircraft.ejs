@@ -11,7 +11,7 @@
   <div class="header">
     <div>
       <div class="callsign"><%- ac.callsign || 'Unknown' %>
-          <% if (vstatus==='Climbing' ) { %>🛫<% } else if (vstatus==='Descending' ) { %>🛬<% } else { %>✈️<% } %>
+          <% if (vstatus==='Climbing' ) { %>🛫<% } else if (vstatus==='Descending' ) { %>🛬<% } else if (isHelicopter) { %>🚁<% } else { %>✈️<% } %>
       </div>
       <div class="airline"><%- enrichment.airline || ac.country || '' %></div>
     </div>
@@ -51,7 +51,7 @@
                 <text class="house-icon" x="<%= centerX %>" y="<%= centerY %>" text-anchor="middle" dominant-baseline="middle">🏠</text>
                 <g class="plane-group">
                   <g transform="translate(<%= planeX %>,<%= planeY %>) rotate(<%= planeHeading - 45 %>)">
-                    <text class="plane-icon">✈️</text>
+                    <text class="plane-icon"><%= isHelicopter ? '🚁' : '✈️' %></text>
                   </g>
                 </g>
               </svg>
