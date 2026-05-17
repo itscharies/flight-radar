@@ -24,6 +24,7 @@
 #include <HTTPClient.h>
 #include <ArduinoJson.h>
 #include "epd_driver.h"
+#include "TouchDrv.hpp"
 #include "types.h"
 
 // ─── USER CONFIG ──────────────────────────────────────────────────────────────
@@ -38,6 +39,12 @@ const char *BASE_URL  = "http://192.168.1.100:8080";  // LePotato IP
 #define MAX_BUTTONS   8
 #define HTTP_BUF_SIZE (900 * 1024)           // 900 KB for JSON response (launcher ~586 KB)
 #define WIFI_MAX_ATTEMPTS 40
+#define TOUCH_DEBOUNCE_MS 300
+
+// GT911 I2C pins — LilyGO T5 4.7" ESP32-S3
+#define TOUCH_SDA  18
+#define TOUCH_SCL  17
+#define TOUCH_INT  47
 
 
 // ─── BASE64 DECODER ───────────────────────────────────────────────────────────
@@ -93,6 +100,10 @@ static bool      retryPending = false;
 static uint32_t  retryAt      = 0;
 static String    retryUrl     = "";
 
+static TouchDrvGT911 touch;
+static bool touchOk = false;
+static uint32_t lastTouchMs = 0;
+
 // ─── HELPERS ──────────────────────────────────────────────────────────────────
 
 String resolveUrl(const String &url) {
@@ -111,6 +122,28 @@ void freeButtons() {
 }
 
 // ─── DISPLAY ──────────────────────────────────────────────────────────────────
+
+// Copy a packed 4-bit crop into framebuffer at (bx, by).
+void blit4bit(const uint8_t *src, int srcW, int srcH, uint8_t *dst, int dstW, int bx, int by) {
+  for (int row = 0; row < srcH; row++) {
+    for (int col = 0; col < srcW; col++) {
+      int si = row * srcW + col;
+      uint8_t nibble = (si % 2 == 0) ? (src[si / 2] & 0x0F) : ((src[si / 2] >> 4) & 0x0F);
+      int di = (by + row) * dstW + (bx + col);
+      if (di % 2 == 0) dst[di / 2] = (dst[di / 2] & 0xF0) | nibble;
+      else             dst[di / 2] = (dst[di / 2] & 0x0F) | (nibble << 4);
+    }
+  }
+}
+
+void showPressedState(const ScreenButton &btn) {
+  blit4bit(btn.pressedBitmap, btn.w, btn.h, framebuffer, EPD_W, btn.x, btn.y);
+  Rect_t area = { btn.x, btn.y, btn.w, btn.h };
+  epd_poweron();
+  epd_draw_grayscale_image(area, framebuffer);
+  epd_poweroff();
+  delay(200);
+}
 
 void drawErrorScreen(const char *msg) {
   memset(framebuffer, 0xFF, BITMAP_BYTES); // white background
@@ -321,6 +354,48 @@ bool wifiConnect() {
 
 // ─── TOUCH ────────────────────────────────────────────────────────────────────
 
+void initTouch() {
+  // GT911 requires INT driven HIGH before I2C init, otherwise it won't respond
+  pinMode(TOUCH_INT, OUTPUT);
+  digitalWrite(TOUCH_INT, HIGH);
+  delay(10);
+
+  Wire.begin(TOUCH_SDA, TOUCH_SCL);
+
+  // GT911 address depends on INT pin state at power-on — probe both
+  uint8_t touchAddr = 0;
+  for (uint8_t addr : {0x14, 0x5D}) {
+    Wire.beginTransmission(addr);
+    if (Wire.endTransmission() == 0) { touchAddr = addr; break; }
+  }
+  if (!touchAddr) {
+    Serial.println("Touch: GT911 not found on I2C");
+    return;
+  }
+  Serial.printf("Touch: GT911 found at 0x%02X\n", touchAddr);
+
+  touch.setPins(-1, TOUCH_INT);
+  touchOk = touch.begin(Wire, touchAddr, TOUCH_SDA, TOUCH_SCL);
+  if (touchOk) {
+    touch.setMaxCoordinates(EPD_W, EPD_H);
+    touch.setSwapXY(true);
+    touch.setMirrorXY(false, true);
+    Serial.println("Touch initialised");
+  } else {
+    Serial.println("Touch begin() failed");
+  }
+}
+
+int hitTest(int tx, int ty) {
+  for (int i = 0; i < buttonCount; i++) {
+    if (tx >= buttons[i].x && tx < buttons[i].x + buttons[i].w &&
+        ty >= buttons[i].y && ty < buttons[i].y + buttons[i].h) {
+      return i;
+    }
+  }
+  return -1;
+}
+
 // ─── SETUP / LOOP ─────────────────────────────────────────────────────────────
 
 void setup() {
@@ -337,6 +412,8 @@ void setup() {
   epd_poweron();
   epd_clear();
   epd_poweroff();
+
+  initTouch();
 
   if (!wifiConnect()) {
     drawErrorScreen("No WiFi");
@@ -360,6 +437,23 @@ void loop() {
   if (!retryPending && timeoutMs > 0 && (now - lastFetchMs) >= timeoutMs) {
     fetchAndDisplay(timeoutUrl);
     return;
+  }
+
+  // Touch handling
+  if (touchOk && (now - lastTouchMs) > TOUCH_DEBOUNCE_MS) {
+    int16_t tx, ty;
+    if (touch.getPoint(&tx, &ty, 1) > 0) {
+      Serial.printf("Touch: (%d, %d)\n", tx, ty);
+      int bi = hitTest(tx, ty);
+      if (bi >= 0) {
+        Serial.printf("  → button %d %s\n", bi, buttons[bi].url);
+        lastTouchMs = now;
+        if (buttons[bi].pressedBitmap) showPressedState(buttons[bi]);
+        fetchAndDisplay(String(buttons[bi].url));
+        return;
+      }
+      lastTouchMs = now;
+    }
   }
 
   delay(50);
