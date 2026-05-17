@@ -124,25 +124,14 @@ void freeButtons() {
 
 // ─── DISPLAY ──────────────────────────────────────────────────────────────────
 
-// Copy a packed 4-bit crop into framebuffer at (bx, by).
-void blit4bit(const uint8_t *src, int srcW, int srcH, uint8_t *dst, int dstW, int bx, int by) {
-  for (int row = 0; row < srcH; row++) {
-    for (int col = 0; col < srcW; col++) {
-      int si = row * srcW + col;
-      uint8_t nibble = (si % 2 == 0) ? (src[si / 2] & 0x0F) : ((src[si / 2] >> 4) & 0x0F);
-      int di = (by + row) * dstW + (bx + col);
-      if (di % 2 == 0) dst[di / 2] = (dst[di / 2] & 0xF0) | nibble;
-      else             dst[di / 2] = (dst[di / 2] & 0x0F) | (nibble << 4);
-    }
-  }
-}
 
 void showPressedState(const ScreenButton &btn) {
-  blit4bit(btn.pressedBitmap, btn.w, btn.h, framebuffer, EPD_W, btn.x, btn.y);
+  // epd_draw_grayscale_image with a sub-rect expects a cropped buffer
+  // (area.width/2 bytes per row), not the full framebuffer.
+  // btn.pressedBitmap is already that exact cropped 4-bit packed region.
   Rect_t area = { btn.x, btn.y, btn.w, btn.h };
   epd_poweron();
-  epd_clear_area(area);                          // clear ghosting in region before drawing
-  epd_draw_grayscale_image(area, framebuffer);   // full framebuffer, area selects rows driven
+  epd_draw_grayscale_image(area, btn.pressedBitmap);
   epd_poweroff();
 }
 
