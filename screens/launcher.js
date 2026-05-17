@@ -14,8 +14,8 @@ const APPS = [
 
 // Must match the absolute tile positions in templates/launcher.ejs
 const TILE_BUTTON_DEFS = [
-  { x: 40,  y: 90, width: 420, height: 430 },
-  { x: 500, y: 90, width: 420, height: 430 },
+  { x: 24,  y: 24, width: 444, height: 492 },
+  { x: 492, y: 24, width: 444, height: 492 },
 ];
 
 function buildHtml() {

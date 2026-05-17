@@ -7,47 +7,42 @@
 html { width: 960px; }
 body {
   width: 960px;
-  /* 1080px = 540 main + 540 sprite zone for pressed states */
-  height: 1080px;
-  background: #fff;
+  height: 1080px; /* 540 main + 540 sprite zone */
+  background: #f5f5f5;
   font-family: -apple-system, "Helvetica Neue", Arial, sans-serif;
   overflow: hidden;
   position: relative;
 }
 
 /* ── Main screen (y: 0–540) ── */
+/* Tile positions must exactly match TILE_BUTTON_DEFS in screens/launcher.js:
+   Tile 1: x=24 y=24 w=444 h=492
+   Tile 2: x=492 y=24 w=444 h=492                                         */
 .screen {
   position: absolute;
   left: 0; top: 0; width: 960px; height: 540px;
   overflow: hidden;
 }
-.header {
-  position: absolute;
-  left: 0; top: 0; width: 960px; height: 70px;
-  display: flex; align-items: center; justify-content: center;
-  border-bottom: 3px solid #111;
-}
-.header h1 {
-  font-size: 30px; font-weight: 700;
-  letter-spacing: 0.12em; text-transform: uppercase; color: #111;
-}
-
-/* Tiles: absolute positions must match TILE_BUTTON_DEFS in screens/launcher.js */
 .tile {
   position: absolute;
-  top: 90px; width: 420px; height: 430px;
-  border: 3px solid #111; border-radius: 20px;
+  top: 24px; width: 444px; height: 492px;
+  background: #fff;
+  border: 2px solid #ddd;
+  border-radius: 16px;
   display: flex; flex-direction: column;
   align-items: center; justify-content: center;
-  background: #fff;
+  gap: 18px;
 }
-.tile:nth-child(1) { left: 40px; }
-.tile:nth-child(2) { left: 500px; }
-.tile-icon  { font-size: 100px; line-height: 1; margin-bottom: 24px; }
-.tile-label { font-size: 30px; font-weight: 600; color: #111; letter-spacing: 0.04em; }
+.tile:nth-child(1) { left: 24px; }
+.tile:nth-child(2) { left: 492px; }
+.tile-icon  { font-size: 96px; line-height: 1; }
+.tile-label {
+  font-size: 18px; font-weight: 700;
+  letter-spacing: 0.14em; text-transform: uppercase; color: #111;
+}
 
 /* ── Sprite zone (y: 540–1080) — pressed states ── */
-/* Same tile positions + 540px offset; inverted colours = pressed look */
+/* Same x/w/h as normal tiles, just rendered below the fold */
 .sprite-zone {
   position: absolute;
   left: 0; top: 540px; width: 960px; height: 540px;
@@ -55,23 +50,26 @@ body {
 }
 .tile-pressed {
   position: absolute;
-  top: 90px; width: 420px; height: 430px;
-  border: 3px solid #fff; border-radius: 20px;
+  top: 24px; width: 444px; height: 492px;
+  background: #111;
+  border: 2px solid #111;
+  border-radius: 16px;
   display: flex; flex-direction: column;
   align-items: center; justify-content: center;
-  background: #111;
+  gap: 18px;
 }
-.tile-pressed:nth-child(1) { left: 40px; }
-.tile-pressed:nth-child(2) { left: 500px; }
-.tile-pressed .tile-icon  { font-size: 100px; line-height: 1; margin-bottom: 24px; filter: invert(1); }
-.tile-pressed .tile-label { font-size: 30px; font-weight: 600; color: #fff; letter-spacing: 0.04em; }
+.tile-pressed:nth-child(1) { left: 24px; }
+.tile-pressed:nth-child(2) { left: 492px; }
+.tile-pressed .tile-icon  { font-size: 96px; line-height: 1; filter: invert(1); }
+.tile-pressed .tile-label {
+  font-size: 18px; font-weight: 700;
+  letter-spacing: 0.14em; text-transform: uppercase; color: #fff;
+}
 </style>
 </head>
 <body>
 
-<!-- Main screen -->
 <div class="screen">
-  <div class="header"><h1>Select App</h1></div>
   <% apps.forEach(function(app) { %>
   <div class="tile">
     <div class="tile-icon"><%= app.icon %></div>
@@ -80,7 +78,6 @@ body {
   <% }); %>
 </div>
 
-<!-- Sprite zone: pressed states at same x/w/h, offset by 540px -->
 <div class="sprite-zone">
   <% apps.forEach(function(app) { %>
   <div class="tile-pressed">
