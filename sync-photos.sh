@@ -16,11 +16,8 @@ log()  { echo -e "${GREEN}▶  $*${NC}"; }
 warn() { echo -e "${YELLOW}⚠  $*${NC}"; }
 
 # Read PHOTOS_DIR from the potato's .env
-REMOTE_DIR="$(ssh "$POTATO" 'source ~/flight-radar/.env 2>/dev/null && echo "$PHOTOS_DIR"' 2>/dev/null)"
-if [ -z "$REMOTE_DIR" ]; then
-  REMOTE_DIR="/home/ubuntu/flight-radar/photos"
-  warn "Could not read PHOTOS_DIR from .env, using default: $REMOTE_DIR"
-fi
+REMOTE_DIR="$(ssh "$POTATO" 'grep "^PHOTOS_DIR=" ~/flight-radar/.env 2>/dev/null | cut -d= -f2' 2>/dev/null || true)"
+REMOTE_DIR="${REMOTE_DIR:-/home/ubuntu/flight-radar/photos}"
 log "Remote dir: $REMOTE_DIR"
 
 log "Converting photos in $SRC_DIR"
