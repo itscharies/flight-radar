@@ -31,14 +31,14 @@
 // ─── USER CONFIG ──────────────────────────────────────────────────────────────
 const char *WIFI_SSID = "LESS DELUXE NETWORK";
 const char *WIFI_PASS = "why?becauseisaidso";
-const char *BASE_URL  = "http://192.168.1.x:8080";  // LePotato IP
+const char *BASE_URL  = "http://192.168.1.100:8080";  // LePotato IP
 
 // ─── CONSTANTS ────────────────────────────────────────────────────────────────
 #define EPD_W         960
 #define EPD_H         540
 #define BITMAP_BYTES  (EPD_W * EPD_H / 2)   // 259 200 bytes, 4-bit packed
 #define MAX_BUTTONS   8
-#define HTTP_BUF_SIZE (512 * 1024)           // 512 KB for JSON response
+#define HTTP_BUF_SIZE (900 * 1024)           // 900 KB for JSON response (launcher ~586 KB)
 #define TOUCH_DEBOUNCE_MS 800
 #define WIFI_MAX_ATTEMPTS 40
 
@@ -225,7 +225,7 @@ void fetchAndDisplay(const String &url) {
   Serial.printf("Read %zu bytes\n", bytesRead);
 
   // Parse JSON from PSRAM-backed document (bitmap base64 is ~345 KB)
-  PsramJsonDocument doc(450 * 1024);
+  PsramJsonDocument doc(800 * 1024);
   DeserializationError err = deserializeJson(doc, httpBuf, bytesRead);
   if (err) {
     Serial.printf("JSON parse error: %s\n", err.c_str());
