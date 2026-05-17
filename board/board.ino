@@ -379,7 +379,7 @@ void initTouch() {
   if (touchOk) {
     touch.setMaxCoordinates(EPD_W, EPD_H);
     touch.setSwapXY(true);
-    touch.setMirrorXY(false, true);
+    touch.setMirrorXY(true, true);
     Serial.println("Touch initialised");
   } else {
     Serial.println("Touch begin() failed");
@@ -448,7 +448,6 @@ void loop() {
       if (bi >= 0) {
         Serial.printf("  → button %d %s\n", bi, buttons[bi].url);
         lastTouchMs = now;
-        if (buttons[bi].pressedBitmap) showPressedState(buttons[bi]);
         fetchAndDisplay(String(buttons[bi].url));
         return;
       }
