@@ -2,3 +2,4 @@ coords.txt
 .env
 node_modules
 __pycache__
+.claude/
