@@ -25,7 +25,8 @@
 #include <HTTPClient.h>
 #include <ArduinoJson.h>
 #include "epd_driver.h"
-#include "TouchDrvGT911.hpp"
+#include "TouchDrv.hpp"
+#include "types.h"
 
 // ─── USER CONFIG ──────────────────────────────────────────────────────────────
 const char *WIFI_SSID = "LESS DELUXE NETWORK";
@@ -96,12 +97,6 @@ size_t b64Decode(const char *src, size_t srcLen, uint8_t *dst) {
 
 // ─── STATE ────────────────────────────────────────────────────────────────────
 
-struct ScreenButton {
-  int16_t  x, y, w, h;
-  char     url[256];
-  uint8_t *pressedBitmap;
-  size_t   pressedBitmapLen;
-};
 
 static uint8_t  *framebuffer = nullptr;
 static char     *httpBuf     = nullptr;
