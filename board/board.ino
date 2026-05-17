@@ -475,6 +475,7 @@ void loop() {
       if (bi >= 0) {
         Serial.printf("  → button %d %s\n", bi, buttons[bi].url);
         lastTouchMs = now;
+        if (buttons[bi].pressedBitmap) showPressedState(buttons[bi]);
         fetchAndDisplay(String(buttons[bi].url), true);
         return;
       }

@@ -50,34 +50,48 @@ function extractRegion(raw, srcW, x, y, w, h) {
  *
  * buttonDefs: [{ x, y, width, height }, ...]
  *
+ * When buttonDefs is non-empty the template is expected to render a sprite zone
+ * below the fold (y ≥ EPD_H) containing pressed-state visuals for each button
+ * at the same x / width / height, offset by EPD_H in y.  The document height
+ * should therefore be EPD_H * 2 when buttons are present.
+ *
  * Returns { bitmap: Buffer, buttonCrops: Buffer[], hash: string }
- * - bitmap:      4-bit packed, 960×540 (259 200 bytes)
- * - buttonCrops: one 4-bit packed crop per buttonDef, colours inverted for press feedback
+ * - bitmap:      4-bit packed, 960×540 (259 200 bytes) — top half only
+ * - buttonCrops: one 4-bit packed crop per buttonDef, from sprite zone
  * - hash:        MD5 hex of bitmap (for change detection)
  */
 async function renderScreen(html, buttonDefs = []) {
+  const hasSprite = buttonDefs.length > 0;
+  const renderH   = hasSprite ? EPD_H * 2 : EPD_H;
+
   const b = await getBrowser();
   const page = await b.newPage();
   try {
-    await page.setViewport({ width: EPD_W, height: EPD_H, deviceScaleFactor: RENDER_SCALE });
+    await page.setViewport({ width: EPD_W, height: renderH, deviceScaleFactor: RENDER_SCALE });
     await page.setUserAgent("FlightRadar/1.0");
     await page.setContent(html, { waitUntil: "networkidle0" });
     const png = await page.screenshot({ type: "png" });
 
     const raw = await sharp(png)
       .flatten({ background: { r: 255, g: 255, b: 255 } })
-      .resize(EPD_W, EPD_H, { kernel: sharp.kernel.lanczos3 })
+      .resize(EPD_W, renderH, { kernel: sharp.kernel.lanczos3 })
       .grayscale()
       .raw()
       .toBuffer();
 
-    const bitmap = packNibbles(raw);
-    const hash = crypto.createHash("md5").update(bitmap).digest("hex");
+    // Main bitmap is always the top EPD_H rows
+    const mainRaw = hasSprite ? raw.subarray(0, EPD_W * EPD_H) : raw;
+    const bitmap  = packNibbles(mainRaw);
+    const hash    = crypto.createHash("md5").update(bitmap).digest("hex");
 
+    // Pressed-state crops come from the sprite zone (y + EPD_H), not inverted
     const buttonCrops = buttonDefs.map(({ x, y, width, height }) => {
-      const region = extractRegion(raw, EPD_W, x, y, width, height);
-      // Invert for pressed visual feedback — no second render needed
-      for (let i = 0; i < region.length; i++) region[i] = 255 - region[i];
+      const spriteY = hasSprite ? y + EPD_H : y;
+      const region  = extractRegion(raw, EPD_W, x, spriteY, width, height);
+      if (!hasSprite) {
+        // No sprite zone: fall back to pixel inversion
+        for (let i = 0; i < region.length; i++) region[i] = 255 - region[i];
+      }
       return packNibbles(region);
     });
 
