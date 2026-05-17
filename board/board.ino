@@ -25,11 +25,11 @@
 #include <HTTPClient.h>
 #include <ArduinoJson.h>
 #include "epd_driver.h"
-#include "SensorLib.h"       // TouchDrvGT911
+#include "touch/TouchDrvGT911.hpp"
 
 // ─── USER CONFIG ──────────────────────────────────────────────────────────────
-const char *WIFI_SSID = "YOUR_SSID";
-const char *WIFI_PASS = "YOUR_PASSWORD";
+const char *WIFI_SSID = "LESS DELUXE NETWORK";
+const char *WIFI_PASS = "why?becauseisaidso";
 const char *BASE_URL  = "http://192.168.1.x:8080";  // LePotato IP
 
 // ─── CONSTANTS ────────────────────────────────────────────────────────────────
@@ -96,7 +96,7 @@ size_t b64Decode(const char *src, size_t srcLen, uint8_t *dst) {
 
 // ─── STATE ────────────────────────────────────────────────────────────────────
 
-struct Button {
+struct ScreenButton {
   int16_t  x, y, w, h;
   char     url[256];
   uint8_t *pressedBitmap;
@@ -105,7 +105,7 @@ struct Button {
 
 static uint8_t  *framebuffer = nullptr;
 static char     *httpBuf     = nullptr;
-static Button    buttons[MAX_BUTTONS];
+static ScreenButton buttons[MAX_BUTTONS];
 static int       buttonCount  = 0;
 static String    currentUrl   = "";
 static String    timeoutUrl   = "";
@@ -163,7 +163,7 @@ void drawErrorScreen(const char *msg) {
   Serial.printf("Error screen: %s\n", msg);
 }
 
-void showPressedState(const Button &btn) {
+void showPressedState(const ScreenButton &btn) {
   blit4bit(btn.pressedBitmap, btn.w, btn.h, framebuffer, EPD_W, btn.x, btn.y);
   Rect_t area = { btn.x, btn.y, btn.w, btn.h };
   epd_poweron();
@@ -322,13 +322,21 @@ bool wifiConnect() {
 
 void initTouch() {
   Wire.begin(TOUCH_SDA, TOUCH_SCL);
-  touchOk = touch.begin(Wire, GT911_SLAVE_ADDRESS1, TOUCH_RST, TOUCH_INT);
+  touch.setPins(TOUCH_RST, TOUCH_INT);
+  touchOk = touch.begin(Wire, GT911_SLAVE_ADDRESS_L);
   if (touchOk) {
     touch.setMaxCoordinates(EPD_W, EPD_H);
     touch.setMirrorXY(false, false);
     Serial.println("Touch initialised");
   } else {
-    Serial.println("Touch init failed — buttons won't work");
+    touchOk = touch.begin(Wire, GT911_SLAVE_ADDRESS_H);
+    if (touchOk) {
+      touch.setMaxCoordinates(EPD_W, EPD_H);
+      touch.setMirrorXY(false, false);
+      Serial.println("Touch initialised (addr H)");
+    } else {
+      Serial.println("Touch init failed — buttons won't work");
+    }
   }
 }
 
@@ -388,13 +396,15 @@ void loop() {
   // Touch handling
   if (touchOk && (now - lastTouchMs) > TOUCH_DEBOUNCE_MS) {
     if (touch.isPressed()) {
-      TP_Point p = touch.getPoint(0);
-      int bi = hitTest(p.x, p.y);
-      if (bi >= 0) {
-        lastTouchMs = now;
-        if (buttons[bi].pressedBitmap) showPressedState(buttons[bi]);
-        fetchAndDisplay(String(buttons[bi].url));
-        return;
+      int16_t tx, ty;
+      if (touch.getPoint(&tx, &ty, 1) > 0) {
+        int bi = hitTest(tx, ty);
+        if (bi >= 0) {
+          lastTouchMs = now;
+          if (buttons[bi].pressedBitmap) showPressedState(buttons[bi]);
+          fetchAndDisplay(String(buttons[bi].url));
+          return;
+        }
       }
     }
   }
