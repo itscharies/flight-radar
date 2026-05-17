@@ -7,7 +7,8 @@
 set -eo pipefail
 
 POTATO="${1:-ubuntu@192.168.1.100}"
-REMOTE_DIR="/home/ubuntu/flight-radar/photos"
+# Read PHOTOS_DIR from the potato's .env so we always sync to the right place
+REMOTE_DIR="$(ssh "$POTATO" 'grep -oP "(?<=^PHOTOS_DIR=).+" ~/flight-radar/.env 2>/dev/null || echo ~/flight-radar/photos')"
 SRC_DIR="$(cd "$(dirname "$0")" && pwd)/photos"
 TMP_DIR="$(mktemp -d)"
 trap 'rm -rf "$TMP_DIR"' EXIT
