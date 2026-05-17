@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body {
+  width: 960px; height: 540px;
+  background: #fff;
+  font-family: -apple-system, "Helvetica Neue", Arial, sans-serif;
+  overflow: hidden;
+  position: relative;
+}
+.header {
+  position: absolute;
+  left: 0; top: 0; width: 960px; height: 70px;
+  display: flex; align-items: center; justify-content: center;
+  border-bottom: 3px solid #111;
+}
+.header h1 {
+  font-size: 30px; font-weight: 700;
+  letter-spacing: 0.12em; text-transform: uppercase; color: #111;
+}
+/* Tiles: absolute positions must match TILE_BUTTON_DEFS in screens/launcher.js */
+.tile {
+  position: absolute;
+  top: 90px; width: 420px; height: 430px;
+  border: 3px solid #111; border-radius: 20px;
+  display: flex; flex-direction: column;
+  align-items: center; justify-content: center;
+  background: #fff;
+}
+.tile:nth-child(1) { left: 40px; }
+.tile:nth-child(2) { left: 500px; }
+.tile-icon  { font-size: 100px; line-height: 1; margin-bottom: 24px; }
+.tile-label { font-size: 30px; font-weight: 600; color: #111; letter-spacing: 0.04em; }
+</style>
+</head>
+<body>
+<div class="header"><h1>Select App</h1></div>
+<% apps.forEach(function(app) { %>
+<div class="tile">
+  <div class="tile-icon"><%= app.icon %></div>
+  <div class="tile-label"><%= app.label %></div>
+</div>
+<% }); %>
+</body>
+</html>

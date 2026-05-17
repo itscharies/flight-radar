@@ -1,0 +1,21 @@
+[Unit]
+Description=Flight Radar Screen Server
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=caleb
+WorkingDirectory=/srv/flight-radar
+EnvironmentFile=/srv/flight-radar/.env
+# ARM64 (LePotato): use system Chromium instead of Puppeteer's bundled binary
+Environment=PUPPETEER_SKIP_DOWNLOAD=true
+Environment=PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium-browser
+ExecStart=/usr/bin/node index.js
+Restart=on-failure
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
