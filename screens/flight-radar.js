@@ -371,7 +371,11 @@ router.get("/", async (req, res) => {
       bitmapCache = { key, bitmap, hash };
     }
 
-    res.json({
+    const etag = `"${hash}"`;
+    if (req.get("If-None-Match") === etag) {
+      return res.status(304).end();
+    }
+    res.set("ETag", etag).json({
       bitmap:      bitmap.toString("base64"),
       buttons:     [],
       timeout_ms:  TIMEOUT_MS,

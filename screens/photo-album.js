@@ -57,9 +57,13 @@ router.get("/", async (req, res) => {
       return res.type("html").send(html);
     }
 
-    const { bitmap } = await renderScreen(html, []);
+    const { bitmap, hash } = await renderScreen(html, []);
 
-    res.json({
+    const etag = `"${hash}"`;
+    if (req.get("If-None-Match") === etag) {
+      return res.status(304).end();
+    }
+    res.set("ETag", etag).json({
       bitmap:      bitmap.toString("base64"),
       buttons:     [],
       timeout_ms:  PHOTO_TIMEOUT_MS,

@@ -99,6 +99,7 @@ static uint32_t  lastFetchMs  = 0;
 static bool      retryPending = false;
 static uint32_t  retryAt      = 0;
 static String    retryUrl     = "";
+static String    currentEtag  = "";
 
 static TouchDrvGT911 touch;
 static bool touchOk = false;
@@ -191,14 +192,36 @@ const char *findNthBase64Field(const char *json, const char *key, int n, size_t 
 
 // ─── FETCH AND DISPLAY ────────────────────────────────────────────────────────
 
-void fetchAndDisplay(const String &url) {
+void fetchAndDisplay(const String &url, bool clearFirst = false) {
+  if (clearFirst) {
+    epd_poweron();
+    epd_clear();
+    epd_poweroff();
+  }
+
   String fullUrl = resolveUrl(url);
   Serial.printf("Fetching: %s\n", fullUrl.c_str());
 
   HTTPClient http;
   http.begin(fullUrl);
   http.setTimeout(30000);
+
+  // Send ETag only when re-fetching the same URL (e.g. auto-refresh)
+  if (url == currentUrl && currentEtag.length() > 0) {
+    http.addHeader("If-None-Match", currentEtag);
+  }
+
+  const char *etagHeader[] = {"ETag"};
+  http.collectHeaders(etagHeader, 1);
+
   int httpCode = http.GET();
+
+  if (httpCode == HTTP_CODE_NOT_MODIFIED) {
+    Serial.println("304 Not Modified — skipping redraw");
+    http.end();
+    lastFetchMs = millis();
+    return;
+  }
 
   if (httpCode != HTTP_CODE_OK) {
     Serial.printf("HTTP error: %d\n", httpCode);
@@ -209,6 +232,10 @@ void fetchAndDisplay(const String &url) {
     retryAt  = millis() + 30000;
     return;
   }
+
+  // Store ETag for next request
+  String etag = http.header("ETag");
+  if (etag.length() > 0) currentEtag = etag;
 
   // Read response into PSRAM buffer
   WiFiClient *stream = http.getStreamPtr();
@@ -448,7 +475,7 @@ void loop() {
       if (bi >= 0) {
         Serial.printf("  → button %d %s\n", bi, buttons[bi].url);
         lastTouchMs = now;
-        fetchAndDisplay(String(buttons[bi].url));
+        fetchAndDisplay(String(buttons[bi].url), true);
         return;
       }
       lastTouchMs = now;

@@ -35,9 +35,13 @@ router.get("/", async (req, res) => {
     }
 
     const buttonDefs = TILE_BUTTON_DEFS.slice(0, APPS.length);
-    const { bitmap, buttonCrops } = await renderScreen(html, buttonDefs);
+    const { bitmap, buttonCrops, hash } = await renderScreen(html, buttonDefs);
 
-    res.json({
+    const etag = `"${hash}"`;
+    if (req.get("If-None-Match") === etag) {
+      return res.status(304).end();
+    }
+    res.set("ETag", etag).json({
       bitmap: bitmap.toString("base64"),
       buttons: buttonDefs.map((def, i) => ({
         x: def.x,
