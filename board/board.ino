@@ -358,22 +358,37 @@ bool wifiConnect() {
 // ─── TOUCH ────────────────────────────────────────────────────────────────────
 
 void initTouch() {
+  delay(200);  // GT911 needs time to power up after EPD init
+
   Wire.begin(TOUCH_SDA, TOUCH_SCL);
+
+  // I2C scan — shows what's actually on the bus
+  Serial.println("I2C scan:");
+  bool anyFound = false;
+  for (uint8_t addr = 1; addr < 127; addr++) {
+    Wire.beginTransmission(addr);
+    if (Wire.endTransmission() == 0) {
+      Serial.printf("  found 0x%02X\n", addr);
+      anyFound = true;
+    }
+  }
+  if (!anyFound) Serial.println("  nothing found");
+
   touch.setPins(TOUCH_RST, TOUCH_INT);
+
+  // Try address L (0x5D) then H (0x14)
   touchOk = touch.begin(Wire, GT911_SLAVE_ADDRESS_L);
+  if (!touchOk) {
+    Wire.begin(TOUCH_SDA, TOUCH_SCL);  // re-init Wire between attempts
+    touchOk = touch.begin(Wire, GT911_SLAVE_ADDRESS_H);
+  }
+
   if (touchOk) {
     touch.setMaxCoordinates(EPD_W, EPD_H);
     touch.setMirrorXY(false, false);
     Serial.println("Touch initialised");
   } else {
-    touchOk = touch.begin(Wire, GT911_SLAVE_ADDRESS_H);
-    if (touchOk) {
-      touch.setMaxCoordinates(EPD_W, EPD_H);
-      touch.setMirrorXY(false, false);
-      Serial.println("Touch initialised (addr H)");
-    } else {
-      Serial.println("Touch init failed — buttons won't work");
-    }
+    Serial.println("Touch init failed — buttons won't work");
   }
 }
 
