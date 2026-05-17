@@ -7,8 +7,6 @@
 set -eo pipefail
 
 POTATO="${1:-ubuntu@192.168.1.100}"
-# Read PHOTOS_DIR from the potato's .env so we always sync to the right place
-REMOTE_DIR="$(ssh "$POTATO" 'grep -oP "(?<=^PHOTOS_DIR=).+" ~/flight-radar/.env 2>/dev/null || echo ~/flight-radar/photos')"
 SRC_DIR="$(cd "$(dirname "$0")" && pwd)/photos"
 TMP_DIR="$(mktemp -d)"
 trap 'rm -rf "$TMP_DIR"' EXIT
@@ -17,7 +15,15 @@ GREEN='\033[0;32m'; YELLOW='\033[1;33m'; NC='\033[0m'
 log()  { echo -e "${GREEN}▶  $*${NC}"; }
 warn() { echo -e "${YELLOW}⚠  $*${NC}"; }
 
-log "Converting photos to JPG in $TMP_DIR"
+# Read PHOTOS_DIR from the potato's .env
+REMOTE_DIR="$(ssh "$POTATO" 'source ~/flight-radar/.env 2>/dev/null && echo "$PHOTOS_DIR"' 2>/dev/null)"
+if [ -z "$REMOTE_DIR" ]; then
+  REMOTE_DIR="/home/ubuntu/flight-radar/photos"
+  warn "Could not read PHOTOS_DIR from .env, using default: $REMOTE_DIR"
+fi
+log "Remote dir: $REMOTE_DIR"
+
+log "Converting photos in $SRC_DIR"
 
 shopt -s nullglob
 for f in "$SRC_DIR"/*.{jpg,JPG,jpeg,JPEG,heic,HEIC,png,PNG,webp,WEBP}; do
@@ -35,16 +41,20 @@ for f in "$SRC_DIR"/*.{jpg,JPG,jpeg,JPEG,heic,HEIC,png,PNG,webp,WEBP}; do
       echo "  converted $name"
       ;;
     *)
-      warn "skipping $name (unsupported)"
+      warn "skipping $name"
       continue
       ;;
   esac
 done
 
 count=$(ls "$TMP_DIR"/*.jpg 2>/dev/null | wc -l | tr -d ' ')
-log "Syncing $count JPG(s) → ${POTATO}:${REMOTE_DIR}"
+if [ "$count" -eq 0 ]; then
+  warn "No photos found in $SRC_DIR"
+  exit 1
+fi
 
-ssh "$POTATO" "mkdir -p $REMOTE_DIR"
-rsync -avz --delete --include='*.jpg' --exclude='*' "$TMP_DIR/" "${POTATO}:${REMOTE_DIR}/"
+log "Syncing $count JPG(s) to ${POTATO}:${REMOTE_DIR}"
+ssh "$POTATO" "mkdir -p '$REMOTE_DIR'"
+rsync -avz --delete "$TMP_DIR/" "${POTATO}:${REMOTE_DIR}/"
 
-log "Done — $count photo(s) on the potato."
+log "Done — $count photo(s) synced."
