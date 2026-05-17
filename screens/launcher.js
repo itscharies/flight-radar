@@ -47,8 +47,8 @@ router.get("/", async (req, res) => {
         url: APPS[i].url,
         pressed_bitmap: buttonCrops[i].toString("base64"),
       })),
-      timeout_ms: 5000,
-      timeout_url: "/screens/flight-radar",
+      timeout_ms: null,
+      timeout_url: null,
     });
   } catch (err) {
     console.error("Launcher error:", err.message);
