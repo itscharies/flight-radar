@@ -470,13 +470,13 @@ void loop() {
   if (touchOk && (now - lastTouchMs) > TOUCH_DEBOUNCE_MS) {
     int16_t tx, ty;
     if (touch.getPoint(&tx, &ty, 1) > 0) {
+      tx = (int16_t)(EPD_W - 1 - tx);  // mirror X to match display orientation
       Serial.printf("Touch: (%d, %d)\n", tx, ty);
       int bi = hitTest(tx, ty);
       if (bi >= 0) {
         Serial.printf("  → button %d %s\n", bi, buttons[bi].url);
         lastTouchMs = now;
-        if (buttons[bi].pressedBitmap) showPressedState(buttons[bi]);
-        fetchAndDisplay(String(buttons[bi].url), true);
+        fetchAndDisplay(String(buttons[bi].url), true);  // clearFirst = white flash feedback
         return;
       }
       lastTouchMs = now;
