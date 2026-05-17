@@ -430,18 +430,21 @@ void loop() {
     return;
   }
 
-  // Touch handling
+  // Touch handling — poll getPoint directly; isPressed() needs INT pin which we don't have
   if (touchOk && (now - lastTouchMs) > TOUCH_DEBOUNCE_MS) {
-    if (touch.isPressed()) {
-      int16_t tx, ty;
-      if (touch.getPoint(&tx, &ty, 1) > 0) {
-        int bi = hitTest(tx, ty);
-        if (bi >= 0) {
-          lastTouchMs = now;
-          if (buttons[bi].pressedBitmap) showPressedState(buttons[bi]);
-          fetchAndDisplay(String(buttons[bi].url));
-          return;
-        }
+    int16_t tx, ty;
+    if (touch.getPoint(&tx, &ty, 1) > 0) {
+      Serial.printf("Touch: (%d, %d)  buttons=%d\n", tx, ty, buttonCount);
+      int bi = hitTest(tx, ty);
+      if (bi >= 0) {
+        Serial.printf("  → button %d url=%s\n", bi, buttons[bi].url);
+        lastTouchMs = now;
+        if (buttons[bi].pressedBitmap) showPressedState(buttons[bi]);
+        fetchAndDisplay(String(buttons[bi].url));
+        return;
+      } else {
+        Serial.println("  → no button hit");
+        lastTouchMs = now;  // still debounce to avoid spam
       }
     }
   }
