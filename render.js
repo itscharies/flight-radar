@@ -22,6 +22,13 @@ async function getBrowser() {
   return browser;
 }
 
+async function warmup() {
+  console.log("Warming up Puppeteer…");
+  const t = Date.now();
+  await getBrowser();
+  console.log(`Puppeteer ready (${Date.now() - t}ms)`);
+}
+
 // Pack 8-bit grayscale buffer into 4-bit nibble pairs.
 // pixel i → low nibble of byte i/2 (even i) or high nibble (odd i).
 function packNibbles(raw) {
@@ -101,4 +108,4 @@ async function renderScreen(html, buttonDefs = []) {
   }
 }
 
-module.exports = { renderScreen, EPD_W, EPD_H };
+module.exports = { renderScreen, warmup, EPD_W, EPD_H };
