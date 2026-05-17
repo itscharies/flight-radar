@@ -28,16 +28,20 @@ fi
 
 # ─── 2. Chromium ──────────────────────────────────────────────────────────────
 step "Chromium"
-if ! command -v chromium-browser &>/dev/null && ! command -v chromium &>/dev/null; then
-  apt install -y chromium-browser 2>/dev/null || apt install -y chromium
+# On Ubuntu 22.04+, apt chromium-browser is a snap stub — install via snap directly.
+if ! snap list chromium &>/dev/null; then
+  echo "  installing chromium snap…"
+  snap install chromium
 fi
 
 CHROMIUM_PATH=""
-for c in /usr/bin/chromium-browser /usr/bin/chromium /snap/bin/chromium; do
-  [[ -x "$c" ]] && { CHROMIUM_PATH="$c"; break; }
+for c in /snap/bin/chromium /usr/bin/chromium /usr/bin/chromium-browser; do
+  # Skip stub wrappers that just print "snap install chromium"
+  if [[ -x "$c" ]] && "$c" --version &>/dev/null 2>&1; then
+    CHROMIUM_PATH="$c"; break
+  fi
 done
-[[ -z "$CHROMIUM_PATH" ]] && CHROMIUM_PATH="$(command -v chromium-browser 2>/dev/null || command -v chromium 2>/dev/null || true)"
-[[ -n "$CHROMIUM_PATH" ]] || die "Chromium not found — install manually then re-run"
+[[ -n "$CHROMIUM_PATH" ]] || die "Chromium not found — run: snap install chromium"
 echo "  using: $CHROMIUM_PATH"
 
 # ─── 3. npm dependencies ──────────────────────────────────────────────────────
