@@ -45,8 +45,8 @@ const char *BASE_URL  = "http://192.168.1.100:8080";  // LePotato IP
 // GT911 I2C pins (LilyGO T5 4.7")
 #define TOUCH_SDA  15
 #define TOUCH_SCL  14
-#define TOUCH_INT  -1
-#define TOUCH_RST  -1
+#define TOUCH_INT  13
+#define TOUCH_RST  12
 
 
 // ─── BASE64 DECODER ───────────────────────────────────────────────────────────
@@ -358,28 +358,34 @@ bool wifiConnect() {
 // ─── TOUCH ────────────────────────────────────────────────────────────────────
 
 void initTouch() {
-  delay(200);  // GT911 needs time to power up after EPD init
+  delay(200);
 
-  Wire.begin(TOUCH_SDA, TOUCH_SCL);
-
-  // I2C scan — shows what's actually on the bus
+  // Scan several candidate SDA/SCL pairs to locate the GT911
+  static const struct { int sda, scl; } buses[] = {
+    {15, 14}, {21, 22}, {13, 12}, {38, 39}, {18, 17}, {3, 4}
+  };
   Serial.println("I2C scan:");
-  bool anyFound = false;
-  for (uint8_t addr = 1; addr < 127; addr++) {
-    Wire.beginTransmission(addr);
-    if (Wire.endTransmission() == 0) {
-      Serial.printf("  found 0x%02X\n", addr);
-      anyFound = true;
+  int foundSda = -1, foundScl = -1;
+  for (auto &b : buses) {
+    Wire.begin(b.sda, b.scl);
+    delay(10);
+    for (uint8_t addr = 1; addr < 127; addr++) {
+      Wire.beginTransmission(addr);
+      if (Wire.endTransmission() == 0) {
+        Serial.printf("  SDA=%d SCL=%d addr=0x%02X\n", b.sda, b.scl, addr);
+        if (foundSda < 0) { foundSda = b.sda; foundScl = b.scl; }
+      }
     }
   }
-  if (!anyFound) Serial.println("  nothing found");
+  if (foundSda < 0) { Serial.println("  nothing found on any bus"); return; }
 
+  // Use the bus where we found a device
+  Wire.begin(foundSda, foundScl);
   touch.setPins(TOUCH_RST, TOUCH_INT);
 
-  // Try address L (0x5D) then H (0x14)
   touchOk = touch.begin(Wire, GT911_SLAVE_ADDRESS_L);
   if (!touchOk) {
-    Wire.begin(TOUCH_SDA, TOUCH_SCL);  // re-init Wire between attempts
+    Wire.begin(foundSda, foundScl);
     touchOk = touch.begin(Wire, GT911_SLAVE_ADDRESS_H);
   }
 
@@ -388,7 +394,7 @@ void initTouch() {
     touch.setMirrorXY(false, false);
     Serial.println("Touch initialised");
   } else {
-    Serial.println("Touch init failed — buttons won't work");
+    Serial.printf("Touch begin() failed (SDA=%d SCL=%d)\n", foundSda, foundScl);
   }
 }
 
