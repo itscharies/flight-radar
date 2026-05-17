@@ -141,9 +141,9 @@ void showPressedState(const ScreenButton &btn) {
   blit4bit(btn.pressedBitmap, btn.w, btn.h, framebuffer, EPD_W, btn.x, btn.y);
   Rect_t area = { btn.x, btn.y, btn.w, btn.h };
   epd_poweron();
-  epd_draw_grayscale_image(area, framebuffer);
+  epd_clear_area(area);                          // clear ghosting in region before drawing
+  epd_draw_grayscale_image(area, framebuffer);   // full framebuffer, area selects rows driven
   epd_poweroff();
-  delay(200);
 }
 
 void drawErrorScreen(const char *msg) {
@@ -476,7 +476,8 @@ void loop() {
       if (bi >= 0) {
         Serial.printf("  → button %d %s\n", bi, buttons[bi].url);
         lastTouchMs = now;
-        fetchAndDisplay(String(buttons[bi].url), true);  // clearFirst = white flash feedback
+        if (buttons[bi].pressedBitmap) showPressedState(buttons[bi]);
+        fetchAndDisplay(String(buttons[bi].url));
         return;
       }
       lastTouchMs = now;
