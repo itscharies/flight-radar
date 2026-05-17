@@ -7,7 +7,7 @@
  * JSON response schema:
  *   {
  *     "bitmap":      "<base64 4-bit packed grayscale 960×540>",
- *     "buttons":     [{ "x","y","width","height","url","pressed_bitmap" }],
+ *     "buttons":     [],   // unused — no touch hardware
  *     "timeout_ms":  15000,   // null = wait indefinitely
  *     "timeout_url": "/path"  // null = re-fetch currentUrl
  *   }
@@ -15,7 +15,6 @@
  * Required libraries (Library Manager):
  *   - ArduinoJson  ≥ 6.21
  *   - LilyGo-EPD47 (display driver)
- *   - SensorLib    (TouchDrvGT911)
  *
  * Board settings:
  *   ESP32S3 Dev Module, PSRAM: OPI, Flash: 16MB QIO 80MHz
@@ -25,7 +24,6 @@
 #include <HTTPClient.h>
 #include <ArduinoJson.h>
 #include "epd_driver.h"
-#include "TouchDrv.hpp"
 #include "types.h"
 
 // ─── USER CONFIG ──────────────────────────────────────────────────────────────
@@ -39,14 +37,7 @@ const char *BASE_URL  = "http://192.168.1.100:8080";  // LePotato IP
 #define BITMAP_BYTES  (EPD_W * EPD_H / 2)   // 259 200 bytes, 4-bit packed
 #define MAX_BUTTONS   8
 #define HTTP_BUF_SIZE (900 * 1024)           // 900 KB for JSON response (launcher ~586 KB)
-#define TOUCH_DEBOUNCE_MS 800
 #define WIFI_MAX_ATTEMPTS 40
-
-// GT911 I2C pins (LilyGO T5 4.7")
-#define TOUCH_SDA  15
-#define TOUCH_SCL  14
-#define TOUCH_INT  13
-#define TOUCH_RST  12
 
 
 // ─── BASE64 DECODER ───────────────────────────────────────────────────────────
@@ -102,29 +93,11 @@ static bool      retryPending = false;
 static uint32_t  retryAt      = 0;
 static String    retryUrl     = "";
 
-static TouchDrvGT911 touch;
-static bool touchOk = false;
-static uint32_t lastTouchMs = 0;
-
 // ─── HELPERS ──────────────────────────────────────────────────────────────────
 
 String resolveUrl(const String &url) {
   if (url.startsWith("http://") || url.startsWith("https://")) return url;
   return String(BASE_URL) + (url.startsWith("/") ? url : "/" + url);
-}
-
-// Copy a packed 4-bit crop into framebuffer at (bx, by).
-// src is srcW×srcH pixels, 4-bit packed (low nibble = pixel 0, high = pixel 1).
-void blit4bit(const uint8_t *src, int srcW, int srcH, uint8_t *dst, int dstW, int bx, int by) {
-  for (int row = 0; row < srcH; row++) {
-    for (int col = 0; col < srcW; col++) {
-      int si = row * srcW + col;
-      uint8_t nibble = (si % 2 == 0) ? (src[si / 2] & 0x0F) : ((src[si / 2] >> 4) & 0x0F);
-      int di = (by + row) * dstW + (bx + col);
-      if (di % 2 == 0) dst[di / 2] = (dst[di / 2] & 0xF0) | nibble;
-      else             dst[di / 2] = (dst[di / 2] & 0x0F) | (nibble << 4);
-    }
-  }
 }
 
 void freeButtons() {
@@ -148,15 +121,6 @@ void drawErrorScreen(const char *msg) {
   epd_draw_grayscale_image(epd_full_screen(), framebuffer);
   epd_poweroff();
   Serial.printf("Error screen: %s\n", msg);
-}
-
-void showPressedState(const ScreenButton &btn) {
-  blit4bit(btn.pressedBitmap, btn.w, btn.h, framebuffer, EPD_W, btn.x, btn.y);
-  Rect_t area = { btn.x, btn.y, btn.w, btn.h };
-  epd_poweron();
-  epd_draw_grayscale_image(area, framebuffer);
-  epd_poweroff();
-  delay(200);
 }
 
 // ─── JSON FIELD HELPERS ───────────────────────────────────────────────────────
@@ -357,57 +321,6 @@ bool wifiConnect() {
 
 // ─── TOUCH ────────────────────────────────────────────────────────────────────
 
-void initTouch() {
-  delay(200);
-
-  // Scan several candidate SDA/SCL pairs to locate the GT911
-  static const struct { int sda, scl; } buses[] = {
-    {15, 14}, {21, 22}, {13, 12}, {38, 39}, {18, 17}, {3, 4}
-  };
-  Serial.println("I2C scan:");
-  int foundSda = -1, foundScl = -1;
-  for (auto &b : buses) {
-    Wire.begin(b.sda, b.scl);
-    delay(10);
-    for (uint8_t addr = 1; addr < 127; addr++) {
-      Wire.beginTransmission(addr);
-      if (Wire.endTransmission() == 0) {
-        Serial.printf("  SDA=%d SCL=%d addr=0x%02X\n", b.sda, b.scl, addr);
-        if (foundSda < 0) { foundSda = b.sda; foundScl = b.scl; }
-      }
-    }
-  }
-  if (foundSda < 0) { Serial.println("  nothing found on any bus"); return; }
-
-  // Use the bus where we found a device
-  Wire.begin(foundSda, foundScl);
-  touch.setPins(TOUCH_RST, TOUCH_INT);
-
-  touchOk = touch.begin(Wire, GT911_SLAVE_ADDRESS_L);
-  if (!touchOk) {
-    Wire.begin(foundSda, foundScl);
-    touchOk = touch.begin(Wire, GT911_SLAVE_ADDRESS_H);
-  }
-
-  if (touchOk) {
-    touch.setMaxCoordinates(EPD_W, EPD_H);
-    touch.setMirrorXY(false, false);
-    Serial.println("Touch initialised");
-  } else {
-    Serial.printf("Touch begin() failed (SDA=%d SCL=%d)\n", foundSda, foundScl);
-  }
-}
-
-int hitTest(int tx, int ty) {
-  for (int i = 0; i < buttonCount; i++) {
-    if (tx >= buttons[i].x && tx < buttons[i].x + buttons[i].w &&
-        ty >= buttons[i].y && ty < buttons[i].y + buttons[i].h) {
-      return i;
-    }
-  }
-  return -1;
-}
-
 // ─── SETUP / LOOP ─────────────────────────────────────────────────────────────
 
 void setup() {
@@ -424,8 +337,6 @@ void setup() {
   epd_poweron();
   epd_clear();
   epd_poweroff();
-
-  initTouch();
 
   if (!wifiConnect()) {
     drawErrorScreen("No WiFi");
@@ -449,25 +360,6 @@ void loop() {
   if (!retryPending && timeoutMs > 0 && (now - lastFetchMs) >= timeoutMs) {
     fetchAndDisplay(timeoutUrl);
     return;
-  }
-
-  // Touch handling — poll getPoint directly; isPressed() needs INT pin which we don't have
-  if (touchOk && (now - lastTouchMs) > TOUCH_DEBOUNCE_MS) {
-    int16_t tx, ty;
-    if (touch.getPoint(&tx, &ty, 1) > 0) {
-      Serial.printf("Touch: (%d, %d)  buttons=%d\n", tx, ty, buttonCount);
-      int bi = hitTest(tx, ty);
-      if (bi >= 0) {
-        Serial.printf("  → button %d url=%s\n", bi, buttons[bi].url);
-        lastTouchMs = now;
-        if (buttons[bi].pressedBitmap) showPressedState(buttons[bi]);
-        fetchAndDisplay(String(buttons[bi].url));
-        return;
-      } else {
-        Serial.println("  → no button hit");
-        lastTouchMs = now;  // still debounce to avoid spam
-      }
-    }
   }
 
   delay(50);
