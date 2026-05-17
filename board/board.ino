@@ -48,14 +48,6 @@ const char *BASE_URL  = "http://192.168.1.100:8080";  // LePotato IP
 #define TOUCH_INT  -1
 #define TOUCH_RST  -1
 
-// ─── PSRAM ALLOCATOR FOR ARDUINOJSON ─────────────────────────────────────────
-// Allocates the JSON document pool in PSRAM so large bitmaps fit.
-struct PsramAllocator {
-  void *allocate(size_t size)                   { return heap_caps_malloc(size, MALLOC_CAP_SPIRAM); }
-  void  deallocate(void *ptr)                   { heap_caps_free(ptr); }
-  void *reallocate(void *ptr, size_t new_size)  { return heap_caps_realloc(ptr, new_size, MALLOC_CAP_SPIRAM); }
-};
-using PsramJsonDocument = BasicJsonDocument<PsramAllocator>;
 
 // ─── BASE64 DECODER ───────────────────────────────────────────────────────────
 static const int8_t kB64[256] = {
@@ -167,6 +159,39 @@ void showPressedState(const ScreenButton &btn) {
   delay(200);
 }
 
+// ─── JSON FIELD HELPERS ───────────────────────────────────────────────────────
+
+// Find "key":"<value>" in raw JSON; sets *len to value length, returns pointer to value.
+const char *findBase64Field(const char *json, const char *key, size_t *len) {
+  char needle[64];
+  snprintf(needle, sizeof(needle), "\"%s\":\"", key);
+  const char *p = strstr(json, needle);
+  if (!p) return nullptr;
+  p += strlen(needle);
+  const char *end = strchr(p, '"');
+  if (!end) return nullptr;
+  *len = end - p;
+  return p;
+}
+
+// Find the nth (0-based) occurrence of "key":"<value>" in raw JSON.
+const char *findNthBase64Field(const char *json, const char *key, int n, size_t *len) {
+  char needle[64];
+  snprintf(needle, sizeof(needle), "\"%s\":\"", key);
+  size_t nlen = strlen(needle);
+  const char *p = json;
+  for (int i = 0; i <= n; i++) {
+    p = strstr(p, needle);
+    if (!p) return nullptr;
+    if (i < n) p += nlen;
+  }
+  p += nlen;
+  const char *end = strchr(p, '"');
+  if (!end) return nullptr;
+  *len = end - p;
+  return p;
+}
+
 // ─── FETCH AND DISPLAY ────────────────────────────────────────────────────────
 
 void fetchAndDisplay(const String &url) {
@@ -224,41 +249,55 @@ void fetchAndDisplay(const String &url) {
   http.end();
   Serial.printf("Read %zu bytes\n", bytesRead);
 
-  // Parse JSON from PSRAM-backed document (bitmap base64 is ~345 KB)
-  PsramJsonDocument doc(800 * 1024);
-  DeserializationError err = deserializeJson(doc, httpBuf, bytesRead);
-  if (err) {
-    Serial.printf("JSON parse error: %s\n", err.c_str());
+  // ── Step 1: decode bitmap directly from httpBuf (no ArduinoJson for large fields) ──
+  // Find "bitmap":"<data>" in raw JSON and decode in place.
+  size_t bmpB64Len = 0;
+  const char *bmpB64 = findBase64Field(httpBuf, "bitmap", &bmpB64Len);
+  if (!bmpB64) {
+    Serial.println("bitmap field not found");
     drawErrorScreen("Bad server response");
-    retryPending = true;
-    retryUrl = url;
-    retryAt  = millis() + 30000;
+    retryPending = true; retryUrl = url; retryAt = millis() + 30000;
     return;
   }
-
-  // Decode main bitmap directly into framebuffer
-  const char *bitmapB64 = doc["bitmap"] | "";
-  size_t decoded = b64Decode(bitmapB64, strlen(bitmapB64), framebuffer);
+  size_t decoded = b64Decode(bmpB64, bmpB64Len, framebuffer);
   Serial.printf("Bitmap decoded: %zu bytes (expected %d)\n", decoded, BITMAP_BYTES);
-
   if (decoded < BITMAP_BYTES / 2) {
-    Serial.println("Bitmap too small, aborting render");
+    Serial.println("Bitmap too small");
     drawErrorScreen("Bad bitmap");
-    retryPending = true;
-    retryUrl = url;
-    retryAt  = millis() + 30000;
+    retryPending = true; retryUrl = url; retryAt = millis() + 30000;
     return;
   }
 
-  // Full-screen redraw
+  // ── Step 2: parse small metadata with a filter (skips bitmap/pressed_bitmap) ──
+  StaticJsonDocument<128> filter;
+  filter["timeout_ms"]   = true;
+  filter["timeout_url"]  = true;
+  filter["buttons"][0]["x"]      = true;
+  filter["buttons"][0]["y"]      = true;
+  filter["buttons"][0]["width"]  = true;
+  filter["buttons"][0]["height"] = true;
+  filter["buttons"][0]["url"]    = true;
+
+  StaticJsonDocument<4096> meta;
+  DeserializationError err = deserializeJson(meta, httpBuf, bytesRead,
+                                              DeserializationOption::Filter(filter));
+  if (err) {
+    Serial.printf("JSON meta parse error: %s\n", err.c_str());
+    drawErrorScreen("Bad server response");
+    retryPending = true; retryUrl = url; retryAt = millis() + 30000;
+    return;
+  }
+
+  // ── Step 3: full-screen redraw ──
   epd_poweron();
   epd_clear();
   epd_draw_grayscale_image(epd_full_screen(), framebuffer);
   epd_poweroff();
 
-  // Parse buttons
+  // ── Step 4: parse buttons; decode each pressed_bitmap from httpBuf ──
   freeButtons();
-  JsonArray btnArr = doc["buttons"].as<JsonArray>();
+  JsonArray btnArr = meta["buttons"].as<JsonArray>();
+  int btnIdx = 0;
   for (JsonObject btn : btnArr) {
     if (buttonCount >= MAX_BUTTONS) break;
     buttons[buttonCount].x = btn["x"] | 0;
@@ -267,25 +306,28 @@ void fetchAndDisplay(const String &url) {
     buttons[buttonCount].h = btn["height"] | 0;
     strlcpy(buttons[buttonCount].url, btn["url"] | "", sizeof(buttons[buttonCount].url));
 
-    const char *pb64 = btn["pressed_bitmap"] | "";
-    size_t pbLen = strlen(pb64);
-    if (pbLen > 0) {
+    size_t pbLen = 0;
+    const char *pb64 = findNthBase64Field(httpBuf, "pressed_bitmap", btnIdx, &pbLen);
+    if (pb64 && pbLen > 0) {
       size_t maxBytes = (pbLen * 3 / 4) + 4;
-      buttons[buttonCount].pressedBitmap = (uint8_t *)heap_caps_malloc(maxBytes, MALLOC_CAP_SPIRAM);
+      buttons[buttonCount].pressedBitmap =
+        (uint8_t *)heap_caps_malloc(maxBytes, MALLOC_CAP_SPIRAM);
       if (buttons[buttonCount].pressedBitmap) {
-        buttons[buttonCount].pressedBitmapLen = b64Decode(pb64, pbLen, buttons[buttonCount].pressedBitmap);
+        buttons[buttonCount].pressedBitmapLen =
+          b64Decode(pb64, pbLen, buttons[buttonCount].pressedBitmap);
       }
     } else {
       buttons[buttonCount].pressedBitmap    = nullptr;
       buttons[buttonCount].pressedBitmapLen = 0;
     }
     buttonCount++;
+    btnIdx++;
   }
 
-  // Update navigation state
+  // ── Step 5: update navigation state ──
   currentUrl  = url;
-  timeoutMs   = doc["timeout_ms"] | 0;
-  const char *tu = doc["timeout_url"] | "";
+  timeoutMs   = meta["timeout_ms"] | 0;
+  const char *tu = meta["timeout_url"] | "";
   timeoutUrl  = (strlen(tu) > 0) ? String(tu) : url;
   lastFetchMs = millis();
   retryPending = false;
