@@ -25,7 +25,7 @@
 #include <HTTPClient.h>
 #include <ArduinoJson.h>
 #include "epd_driver.h"
-#include "touch/TouchDrvGT911.hpp"
+#include "TouchDrvGT911.hpp"
 
 // ─── USER CONFIG ──────────────────────────────────────────────────────────────
 const char *WIFI_SSID = "LESS DELUXE NETWORK";
