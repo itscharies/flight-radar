@@ -1,10 +1,14 @@
 const express = require("express");
 const axios = require("axios");
+const https = require("https");
 const path = require("path");
 const fs = require("fs");
 const crypto = require("crypto");
 const ejs = require("ejs");
 const { renderScreen, EPD_W, EPD_H } = require("../render");
+
+// Force IPv4 for all outbound HTTPS — LePotato times out on IPv6 connections
+const httpsAgent = new https.Agent({ family: 4 });
 
 const router = express.Router();
 const TEMPLATES_DIR = path.join(__dirname, "../templates");
@@ -91,7 +95,7 @@ async function getOpenSkyToken() {
     const resp = await axios.post(
       "https://auth.opensky-network.org/auth/realms/opensky-network/protocol/openid-connect/token",
       params.toString(),
-      { headers: { "Content-Type": "application/x-www-form-urlencoded" }, timeout: 10000 }
+      { headers: { "Content-Type": "application/x-www-form-urlencoded" }, timeout: 10000, httpsAgent }
     );
     cachedToken = resp.data.access_token;
     tokenExpiresAt = Date.now() + (resp.data.expires_in - 60) * 1000;
@@ -198,7 +202,7 @@ async function fetchOpenSky() {
   let resp;
   try {
     resp = await axios.get("https://opensky-network.org/api/states/all", {
-      params, headers, timeout: 30000, validateStatus: (s) => s < 500,
+      params, headers, timeout: 30000, validateStatus: (s) => s < 500, httpsAgent,
     });
   } catch (err) {
     console.error("OpenSky request failed:", err.message);
@@ -256,7 +260,7 @@ async function fetchOpenSkyRoute(icao24) {
     const resp = await axios.get("https://opensky-network.org/api/flights/aircraft", {
       params: { icao24: icao24.toLowerCase(), begin, end },
       headers: { Authorization: `Bearer ${token}` },
-      timeout: 10000, validateStatus: (s) => s === 200 || s === 400 || s === 404,
+      timeout: 10000, validateStatus: (s) => s === 200 || s === 400 || s === 404, httpsAgent,
     });
     if (resp.status === 400) { console.warn(`OpenSky route 400 for ${icao24}:`, JSON.stringify(resp.data).slice(0, 120)); return null; }
     if (resp.status === 404 || !Array.isArray(resp.data) || !resp.data.length) return null;
@@ -273,8 +277,8 @@ async function enrichAircraft(icao24, callsign) {
 
   const [openSkyRoute, routeResp, acResp] = await Promise.all([
     fetchOpenSkyRoute(icao24),
-    axios.get(`https://api.adsbdb.com/v0/callsign/${callsign}`, { timeout: 10000 }).catch(e => { console.warn(`adsbdb callsign error: ${e.code || e.message || String(e)}`); return null; }),
-    axios.get(`https://api.adsbdb.com/v0/aircraft/${icao24}`, { timeout: 10000 }).catch(e => { console.warn(`adsbdb aircraft error: ${e.code || e.message || String(e)}`); return null; }),
+    axios.get(`https://api.adsbdb.com/v0/callsign/${callsign}`, { timeout: 10000, httpsAgent }).catch(e => { console.warn(`adsbdb callsign error: ${e.code || e.message || String(e)}`); return null; }),
+    axios.get(`https://api.adsbdb.com/v0/aircraft/${icao24}`, { timeout: 10000, httpsAgent }).catch(e => { console.warn(`adsbdb aircraft error: ${e.code || e.message || String(e)}`); return null; }),
   ]);
 
   if (openSkyRoute) result.route = `${openSkyRoute.origin} ➡ ${openSkyRoute.dest}`;
@@ -407,7 +411,7 @@ router.get("/debug", async (req, res) => {
   const out = { bbox: params, radiusKm: Math.max(CONFIG.radiusKm, 1), authenticated: !!token };
   try {
     const resp = await axios.get("https://opensky-network.org/api/states/all", {
-      params, headers, timeout: 15000, validateStatus: () => true,
+      params, headers, timeout: 15000, validateStatus: () => true, httpsAgent,
     });
     out.httpStatus = resp.status;
     out.rateLimited = resp.status === 429;
