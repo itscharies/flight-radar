@@ -55,7 +55,7 @@ router.get("/", async (req, res) => {
       timeout_url: null,
     });
   } catch (err) {
-    console.error("Launcher error:", err.message);
+    console.error("Launcher error:", err.stack || err.message);
     res.status(503).json({ error: err.message });
   }
 });

@@ -261,7 +261,7 @@ async function fetchOpenSkyRoute(icao24) {
     const origin = current.estDepartureAirport || null;
     const dest   = current.estArrivalAirport   || null;
     return (origin && dest) ? { origin, dest } : null;
-  } catch (_) { return null; }
+  } catch (e) { console.warn(`OpenSky route fetch failed (${icao24}):`, e.message); return null; }
 }
 
 async function enrichAircraft(icao24, callsign) {
@@ -386,7 +386,7 @@ router.get("/", async (req, res) => {
     });
     console.log(`Served radar screen — aircraft: ${ac?.callsign || "none"}`);
   } catch (err) {
-    console.error("Flight radar error:", err.message);
+    console.error("Flight radar error:", err.stack || err.message);
     res.status(503).json({ error: err.message });
   }
 });

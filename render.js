@@ -75,6 +75,7 @@ async function renderScreen(html, buttonDefs = []) {
   try {
     b = await getBrowser();
   } catch (err) {
+    console.warn("Browser launch failed, retrying:", err.message);
     browser = null;
     b = await getBrowser();
   }
@@ -110,9 +111,11 @@ async function renderScreen(html, buttonDefs = []) {
 
     return { bitmap, buttonCrops, hash };
   } catch (err) {
-    // If the browser died mid-render, reset so next call gets a fresh one
     if (err.message && (err.message.includes("Connection closed") || err.message.includes("Target closed"))) {
+      console.warn("Browser died mid-render, will restart on next request:", err.message);
       browser = null;
+    } else {
+      console.error("Render error:", err.stack || err.message);
     }
     throw err;
   } finally {

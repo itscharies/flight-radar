@@ -71,7 +71,7 @@ router.get("/", async (req, res) => {
     });
     console.log(`Served photo ${index + 1}/${photos.length}: ${path.basename(filePath)}`);
   } catch (err) {
-    console.error("Photo album error:", err.message);
+    console.error("Photo album error:", err.stack || err.message);
     res.status(503).json({ error: err.message });
   }
 });
