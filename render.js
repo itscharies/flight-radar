@@ -67,18 +67,10 @@ function extractRegion(raw, srcW, x, y, w, h) {
  * - buttonCrops: one 4-bit packed crop per buttonDef, from sprite zone
  * - hash:        MD5 hex of bitmap (for change detection)
  */
-async function renderScreen(html, buttonDefs = []) {
+async function renderOnce(html, buttonDefs) {
   const hasSprite = buttonDefs.length > 0;
   const renderH   = hasSprite ? EPD_H * 2 : EPD_H;
-
-  let b;
-  try {
-    b = await getBrowser();
-  } catch (err) {
-    console.warn("Browser launch failed, retrying:", err.message);
-    browser = null;
-    b = await getBrowser();
-  }
+  const b = await getBrowser();
   const page = await b.newPage();
   try {
     await page.setViewport({ width: EPD_W, height: renderH, deviceScaleFactor: RENDER_SCALE });
@@ -93,33 +85,37 @@ async function renderScreen(html, buttonDefs = []) {
       .raw()
       .toBuffer();
 
-    // Main bitmap is always the top EPD_H rows
     const mainRaw = hasSprite ? raw.subarray(0, EPD_W * EPD_H) : raw;
     const bitmap  = packNibbles(mainRaw);
     const hash    = crypto.createHash("md5").update(bitmap).digest("hex");
 
-    // Pressed-state crops come from the sprite zone (y + EPD_H), not inverted
     const buttonCrops = buttonDefs.map(({ x, y, width, height }) => {
       const spriteY = hasSprite ? y + EPD_H : y;
       const region  = extractRegion(raw, EPD_W, x, spriteY, width, height);
       if (!hasSprite) {
-        // No sprite zone: fall back to pixel inversion
         for (let i = 0; i < region.length; i++) region[i] = 255 - region[i];
       }
       return packNibbles(region);
     });
 
     return { bitmap, buttonCrops, hash };
-  } catch (err) {
-    if (err.message && (err.message.includes("Connection closed") || err.message.includes("Target closed"))) {
-      console.warn("Browser died mid-render, will restart on next request:", err.message);
-      browser = null;
-    } else {
-      console.error("Render error:", err.stack || err.message);
-    }
-    throw err;
   } finally {
     await page.close().catch(() => {});
+  }
+}
+
+async function renderScreen(html, buttonDefs = []) {
+  try {
+    return await renderOnce(html, buttonDefs);
+  } catch (err) {
+    const browserDied = err.message && (err.message.includes("Connection closed") || err.message.includes("Target closed"));
+    if (browserDied) {
+      console.warn("Browser died mid-render, restarting and retrying:", err.message);
+      browser = null;
+      return await renderOnce(html, buttonDefs);
+    }
+    console.error("Render error:", err.stack || err.message);
+    throw err;
   }
 }
 
