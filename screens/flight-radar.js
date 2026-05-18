@@ -250,12 +250,15 @@ async function fetchOpenSkyRoute(icao24) {
   const token = await getOpenSkyToken();
   if (!token) return null;
   const now = Math.floor(Date.now() / 1000);
+  const end = now - 3600;        // 1h buffer — OpenSky rejects requests too close to now
+  const begin = end - 24 * 3600;
   try {
     const resp = await axios.get("https://opensky-network.org/api/flights/aircraft", {
-      params: { icao24: icao24.toLowerCase(), begin: now - 2 * 24 * 3600, end: now },
+      params: { icao24: icao24.toLowerCase(), begin, end },
       headers: { Authorization: `Bearer ${token}` },
-      timeout: 10000, validateStatus: (s) => s === 200 || s === 404,
+      timeout: 10000, validateStatus: (s) => s === 200 || s === 400 || s === 404,
     });
+    if (resp.status === 400) { console.warn(`OpenSky route 400 for ${icao24}:`, JSON.stringify(resp.data).slice(0, 120)); return null; }
     if (resp.status === 404 || !Array.isArray(resp.data) || !resp.data.length) return null;
     const current = resp.data.find(f => f.firstSeen <= now && now <= f.lastSeen) || resp.data[resp.data.length - 1];
     const origin = current.estDepartureAirport || null;
@@ -270,8 +273,8 @@ async function enrichAircraft(icao24, callsign) {
 
   const [openSkyRoute, routeResp, acResp] = await Promise.all([
     fetchOpenSkyRoute(icao24),
-    axios.get(`https://api.adsbdb.com/v0/callsign/${callsign}`, { timeout: 5000 }).catch(e => { console.warn(`adsbdb callsign error: ${e.message}`); return null; }),
-    axios.get(`https://api.adsbdb.com/v0/aircraft/${icao24}`, { timeout: 5000 }).catch(e => { console.warn(`adsbdb aircraft error: ${e.message}`); return null; }),
+    axios.get(`https://api.adsbdb.com/v0/callsign/${callsign}`, { timeout: 10000 }).catch(e => { console.warn(`adsbdb callsign error: ${e.code || e.message || String(e)}`); return null; }),
+    axios.get(`https://api.adsbdb.com/v0/aircraft/${icao24}`, { timeout: 10000 }).catch(e => { console.warn(`adsbdb aircraft error: ${e.code || e.message || String(e)}`); return null; }),
   ]);
 
   if (openSkyRoute) result.route = `${openSkyRoute.origin} ➡ ${openSkyRoute.dest}`;
