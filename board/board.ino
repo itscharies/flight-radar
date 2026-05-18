@@ -26,10 +26,9 @@
 #include "epd_driver.h"
 #include "TouchDrv.hpp"
 #include "types.h"
+#include "secrets.h"  // #define WIFI_SSID / WIFI_PASS — gitignored, never committed
 
 // ─── USER CONFIG ──────────────────────────────────────────────────────────────
-const char *WIFI_SSID = "LESS DELUXE NETWORK";
-const char *WIFI_PASS = "why?becauseisaidso";
 const char *BASE_URL  = "http://192.168.1.100:8080";  // LePotato IP
 
 // ─── CONSTANTS ────────────────────────────────────────────────────────────────
