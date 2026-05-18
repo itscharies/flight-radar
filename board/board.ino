@@ -100,6 +100,7 @@ static bool      retryPending = false;
 static uint32_t  retryAt      = 0;
 static String    retryUrl     = "";
 static String    currentEtag  = "";
+static bool      screenIsBlank = true;  // suppress If-None-Match until a bitmap is drawn
 
 static TouchDrvGT911 touch;
 static bool touchOk = false;
@@ -195,8 +196,8 @@ void fetchAndDisplay(const String &url, bool clearFirst = false) {
   http.begin(fullUrl);
   http.setTimeout(30000);
 
-  // Send ETag only when re-fetching the same URL (e.g. auto-refresh)
-  if (url == currentUrl && currentEtag.length() > 0) {
+  // Send ETag only when re-fetching the same URL and the screen is showing something
+  if (!screenIsBlank && url == currentUrl && currentEtag.length() > 0) {
     http.addHeader("If-None-Match", currentEtag);
   }
 
@@ -216,6 +217,7 @@ void fetchAndDisplay(const String &url, bool clearFirst = false) {
     Serial.printf("HTTP error: %d\n", httpCode);
     http.end();
     drawErrorScreen("Connection error");
+    screenIsBlank = true;
     retryPending = true;
     retryUrl = url;
     retryAt  = millis() + 30000;
@@ -269,6 +271,7 @@ void fetchAndDisplay(const String &url, bool clearFirst = false) {
   if (!bmpB64) {
     Serial.println("bitmap field not found");
     drawErrorScreen("Bad server response");
+    screenIsBlank = true;
     retryPending = true; retryUrl = url; retryAt = millis() + 30000;
     return;
   }
@@ -277,6 +280,7 @@ void fetchAndDisplay(const String &url, bool clearFirst = false) {
   if (decoded < BITMAP_BYTES / 2) {
     Serial.println("Bitmap too small");
     drawErrorScreen("Bad bitmap");
+    screenIsBlank = true;
     retryPending = true; retryUrl = url; retryAt = millis() + 30000;
     return;
   }
@@ -297,6 +301,7 @@ void fetchAndDisplay(const String &url, bool clearFirst = false) {
   if (err) {
     Serial.printf("JSON meta parse error: %s\n", err.c_str());
     drawErrorScreen("Bad server response");
+    screenIsBlank = true;
     retryPending = true; retryUrl = url; retryAt = millis() + 30000;
     return;
   }
@@ -306,6 +311,7 @@ void fetchAndDisplay(const String &url, bool clearFirst = false) {
   epd_clear();
   epd_draw_grayscale_image(epd_full_screen(), framebuffer);
   epd_poweroff();
+  screenIsBlank = false;
 
   // ── Step 4: parse buttons; decode each pressed_bitmap from httpBuf ──
   freeButtons();
