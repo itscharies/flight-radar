@@ -270,8 +270,8 @@ async function enrichAircraft(icao24, callsign) {
 
   const [openSkyRoute, routeResp, acResp] = await Promise.all([
     fetchOpenSkyRoute(icao24),
-    axios.get(`https://api.adsbdb.com/v0/callsign/${callsign}`, { timeout: 5000 }).catch(() => null),
-    axios.get(`https://api.adsbdb.com/v0/aircraft/${icao24}`, { timeout: 5000 }).catch(() => null),
+    axios.get(`https://api.adsbdb.com/v0/callsign/${callsign}`, { timeout: 5000 }).catch(e => { console.warn(`adsbdb callsign error: ${e.message}`); return null; }),
+    axios.get(`https://api.adsbdb.com/v0/aircraft/${icao24}`, { timeout: 5000 }).catch(e => { console.warn(`adsbdb aircraft error: ${e.message}`); return null; }),
   ]);
 
   if (openSkyRoute) result.route = `${openSkyRoute.origin} ➡ ${openSkyRoute.dest}`;
