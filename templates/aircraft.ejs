@@ -20,13 +20,15 @@
 
   <div class="body">
     <div class="left">
+      <% if (enrichment.route) { %>
       <div class="block">
-        <div class="route"><%- enrichment.route || 'Route unknown' %></div>
+        <div class="route"><%- enrichment.route %></div>
         <div class="airports">
           <div class="airport-name"><%- enrichment.originName || '' %></div>
           <div class="airport-name"><%- enrichment.destName || '' %></div>
         </div>
       </div>
+      <% } %>
       <div class="divider"></div>
       <div class="stats-under-route">
         <div class="stat-block">
