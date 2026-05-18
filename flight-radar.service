@@ -16,6 +16,8 @@ Restart=on-failure
 RestartSec=10
 StandardOutput=journal
 StandardError=journal
+# Required for snap Chromium to launch from a systemd service cgroup
+Delegate=yes
 
 [Install]
 WantedBy=multi-user.target

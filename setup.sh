@@ -28,20 +28,38 @@ fi
 
 # ─── 2. Chromium ──────────────────────────────────────────────────────────────
 step "Chromium"
-# On Ubuntu 22.04+, apt chromium-browser is a snap stub — install via snap directly.
-if ! snap list chromium &>/dev/null; then
-  echo "  installing chromium snap…"
-  snap install chromium
-fi
-
+# Prefer the real deb package over snap — snap Chromium refuses to launch from
+# a systemd service cgroup unless Delegate=yes is set (and even then is flaky).
+# The Debian chromium package works reliably without cgroup restrictions.
 CHROMIUM_PATH=""
-for c in /snap/bin/chromium /usr/bin/chromium /usr/bin/chromium-browser; do
-  # Skip stub wrappers that just print "snap install chromium"
+for c in /usr/bin/chromium /usr/bin/chromium-browser; do
   if [[ -x "$c" ]] && "$c" --version &>/dev/null 2>&1; then
     CHROMIUM_PATH="$c"; break
   fi
 done
-[[ -n "$CHROMIUM_PATH" ]] || die "Chromium not found — run: snap install chromium"
+
+if [[ -z "$CHROMIUM_PATH" ]]; then
+  echo "  installing chromium deb…"
+  apt install -y chromium 2>/dev/null || apt install -y chromium-browser 2>/dev/null || true
+  for c in /usr/bin/chromium /usr/bin/chromium-browser; do
+    if [[ -x "$c" ]] && "$c" --version &>/dev/null 2>&1; then
+      CHROMIUM_PATH="$c"; break
+    fi
+  done
+fi
+
+# Fall back to snap if deb isn't available (Ubuntu 22.04+ only ships a snap stub)
+if [[ -z "$CHROMIUM_PATH" ]]; then
+  echo "  deb not available, falling back to snap…"
+  if ! snap list chromium &>/dev/null; then
+    snap install chromium
+  fi
+  if [[ -x /snap/bin/chromium ]] && /snap/bin/chromium --version &>/dev/null 2>&1; then
+    CHROMIUM_PATH="/snap/bin/chromium"
+  fi
+fi
+
+[[ -n "$CHROMIUM_PATH" ]] || die "Chromium not found — run: apt install chromium  or  snap install chromium"
 echo "  using: $CHROMIUM_PATH"
 
 # ─── 3. npm dependencies ──────────────────────────────────────────────────────
@@ -92,6 +110,7 @@ Restart=on-failure
 RestartSec=10
 StandardOutput=journal
 StandardError=journal
+Delegate=yes
 
 [Install]
 WantedBy=multi-user.target
