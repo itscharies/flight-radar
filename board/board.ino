@@ -7,14 +7,15 @@
  * JSON response schema:
  *   {
  *     "bitmap":      "<base64 4-bit packed grayscale 960×540>",
- *     "buttons":     [],   // unused — no touch hardware
+ *     "buttons":     [{ x, y, width, height, url, pressed_bitmap }],
  *     "timeout_ms":  15000,   // null = wait indefinitely
  *     "timeout_url": "/path"  // null = re-fetch currentUrl
  *   }
  *
  * Required libraries (Library Manager):
  *   - ArduinoJson  ≥ 6.21
- *   - LilyGo-EPD47 (display driver)
+ *   - epdiy / LilyGo-EPD47 (display driver)
+ *   - LVGL / TouchDrv (GT911 touch, SDA=18 SCL=17 INT=47)
  *
  * Board settings:
  *   ESP32S3 Dev Module, PSRAM: OPI, Flash: 16MB QIO 80MHz
