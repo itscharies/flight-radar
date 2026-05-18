@@ -282,9 +282,12 @@ async function enrichAircraft(icao24, callsign) {
     result.originName = fr.origin?.name || null;
     result.destName   = fr.destination?.name || null;
     result.airline    = fr.airline?.name || null;
+  } else {
+    console.log(`adsbdb callsign lookup: status=${routeResp?.status} body=${JSON.stringify(routeResp?.data).slice(0, 120)}`);
   }
 
   if (acResp?.data?.response?.aircraft?.type) result.aircraftType = acResp.data.response.aircraft.type;
+  console.log(`Enrichment for ${callsign}: route=${result.route} airline=${result.airline} type=${result.aircraftType}`);
 
   return result;
 }

@@ -71,7 +71,13 @@ async function renderScreen(html, buttonDefs = []) {
   const hasSprite = buttonDefs.length > 0;
   const renderH   = hasSprite ? EPD_H * 2 : EPD_H;
 
-  const b = await getBrowser();
+  let b;
+  try {
+    b = await getBrowser();
+  } catch (err) {
+    browser = null;
+    b = await getBrowser();
+  }
   const page = await b.newPage();
   try {
     await page.setViewport({ width: EPD_W, height: renderH, deviceScaleFactor: RENDER_SCALE });
@@ -103,8 +109,14 @@ async function renderScreen(html, buttonDefs = []) {
     });
 
     return { bitmap, buttonCrops, hash };
+  } catch (err) {
+    // If the browser died mid-render, reset so next call gets a fresh one
+    if (err.message && (err.message.includes("Connection closed") || err.message.includes("Target closed"))) {
+      browser = null;
+    }
+    throw err;
   } finally {
-    await page.close();
+    await page.close().catch(() => {});
   }
 }
 

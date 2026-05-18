@@ -16,8 +16,8 @@ log()  { echo -e "${GREEN}▶  $*${NC}"; }
 warn() { echo -e "${YELLOW}⚠  $*${NC}"; }
 
 # Read PHOTOS_DIR from the potato's .env
-REMOTE_DIR="$(ssh "$POTATO" 'grep "^PHOTOS_DIR=" ~/flight-radar/.env 2>/dev/null | cut -d= -f2' 2>/dev/null || true)"
-REMOTE_DIR="${REMOTE_DIR:-/home/ubuntu/flight-radar/photos}"
+REMOTE_DIR="$(ssh "$POTATO" 'grep "^PHOTOS_DIR=" /srv/flightradar/.env 2>/dev/null | cut -d= -f2' 2>/dev/null || true)"
+REMOTE_DIR="${REMOTE_DIR:-/srv/flightradar/photos}"
 log "Remote dir: $REMOTE_DIR"
 
 log "Converting photos in $SRC_DIR"
@@ -51,7 +51,7 @@ if [ "$count" -eq 0 ]; then
 fi
 
 log "Syncing $count JPG(s) to ${POTATO}:${REMOTE_DIR}"
-ssh "$POTATO" "mkdir -p '$REMOTE_DIR'"
+ssh "$POTATO" "sudo mkdir -p '$REMOTE_DIR'"
 rsync -avz --delete "$TMP_DIR/" "${POTATO}:${REMOTE_DIR}/"
 
 log "Done — $count photo(s) synced."
